@@ -15,19 +15,19 @@ func main() {
 		DataDir:       "./data",
 		BlockSize:     64 * 1024,
 		MemtableSize:  64 * 1024,
-		CrashRecovery: false,
+		CrashRecovery: true,
 	})
 
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	for i := range 3000 {
-		e.Put(
-			fmt.Sprintf("key-%d", i),
-			fmt.Appendf(nil, "value-%d", i),
-		)
-	}
+	// for i := range 3000 {
+	// 	e.Put(
+	// 		fmt.Sprintf("key-%d", i),
+	// 		fmt.Appendf(nil, "value-%d", i),
+	// 	)
+	// }
 
 	for i := range 3000 {
 		if val, ok := e.Get(fmt.Sprintf("key-%d", i)); ok {

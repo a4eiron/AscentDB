@@ -56,9 +56,15 @@ func New(opts *config.Options) (*Engine, error) {
 	if e.opts.CrashRecovery {
 		wal, err := wal.Open(filepath.Join(opts.DataDir, "wal", fmt.Sprintf("wal-%06d", e.fileNum)))
 		if err != nil {
+			log.Println(err)
 			return nil, err
 		}
 		e.wal = wal
+
+		if err := e.recover(); err != nil {
+			log.Println(err)
+			return nil, err
+		}
 	}
 
 	// background flusher
