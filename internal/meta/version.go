@@ -17,6 +17,7 @@ type VersionSet struct {
 
 	nextFileNum uint64
 	lastSeqNum  uint64
+	logNum      uint64
 
 	manifest *os.File
 	mu       sync.Mutex
@@ -28,6 +29,7 @@ type VersionEdit struct {
 
 	LastSequence *uint64
 	NextFileNum  *uint64
+	LogNumber    *uint64
 }
 
 func (vs *VersionSet) LogAndApply(edit *VersionEdit) error {
@@ -59,6 +61,13 @@ func (vs *VersionSet) NextFileNum() uint64 {
 	vs.nextFileNum++
 
 	return n
+}
+
+func (vs *VersionSet) LogNumber() uint64 {
+	vs.mu.Lock()
+	defer vs.mu.Unlock()
+
+	return vs.logNum
 }
 
 func (vs *VersionSet) apply(edit *VersionEdit) *Version {
@@ -141,6 +150,10 @@ func (vs *VersionSet) replay(f *os.File) error {
 		case tagNextFileNum:
 			val, _ := binary.ReadUvarint(reader)
 			vs.nextFileNum = val
+
+		case tagLogNum:
+			val, _ := binary.ReadUvarint(reader)
+			vs.logNum = val
 		}
 
 	}
@@ -179,6 +192,12 @@ func encodeVersionEdit(edit *VersionEdit) []byte {
 		writeTag(tagDeleteTable)
 		b := encodeDeletedTable(del)
 		buf.Write(b)
+	}
+
+	if edit.LogNumber != nil {
+		writeTag(tagLogNum)
+		n := binary.PutUvarint(tmp, *edit.LogNumber)
+		buf.Write(tmp[:n])
 	}
 
 	if edit.LastSequence != nil {

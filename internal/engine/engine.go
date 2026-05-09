@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/a4eiron/ascentdb/internal/config"
 	"github.com/a4eiron/ascentdb/internal/memtable"
@@ -61,9 +62,13 @@ func New(opts *config.Options) (*Engine, error) {
 	}
 
 	e.vs = vs
+	e.fileNum = e.vs.NextFileNum()
 
 	if e.opts.CrashRecovery {
-		wal, err := wal.Open(filepath.Join(opts.DataDir, "wal", fmt.Sprintf("wal-%06d", e.fileNum)))
+		walPath := filepath.Join(opts.DataDir, "wal", fmt.Sprintf("wal-%06d", e.vs.LogNumber()))
+		log.Println("Opening wal", walPath)
+		time.Sleep(4 * time.Second)
+		wal, err := wal.Open(walPath)
 		if err != nil {
 			log.Println(err)
 			return nil, err

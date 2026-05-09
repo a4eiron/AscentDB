@@ -15,6 +15,7 @@ import (
 
 type flushTask struct {
 	oldWalPath   string
+	oldWal       *wal.WAL
 	mt           *memtable.Memtable
 	writer       *sstable.TableWriter
 	manifestPath string
@@ -41,6 +42,11 @@ func (e *Engine) rotate() (*flushTask, error) {
 		return nil, err
 	}
 
+	edit := &meta.VersionEdit{LogNumber: &fileNum}
+	if err := e.vs.LogAndApply(edit); err != nil {
+		log.Println(err)
+	}
+
 	e.mt = memtable.New(64 * 1024)
 	e.wal = newWal
 
@@ -56,6 +62,7 @@ func (e *Engine) rotate() (*flushTask, error) {
 	fileNum = e.vs.NextFileNum()
 
 	task := &flushTask{
+		oldWal:       oldWal,
 		oldWalPath:   oldWal.Path(),
 		mt:           mt,
 		writer:       writer,
@@ -124,7 +131,9 @@ func (e *Engine) runFlusher() {
 			log.Println(err)
 		}
 
-		task.mt = nil
+		if err := task.oldWal.Close(); err != nil {
+			log.Println("failed to close wal:", task.oldWalPath, err)
+		}
 		if err := os.Remove(task.oldWalPath); err != nil {
 			log.Println("failed to delete wal:", task.oldWalPath, err)
 		}

@@ -110,3 +110,9 @@ func Replay(w *WAL, fn func(r *record.Record) error) error {
 func (w *WAL) Path() string {
 	return w.file.Name()
 }
+
+func (w *WAL) Close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.file.Close()
+}

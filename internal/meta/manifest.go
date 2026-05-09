@@ -20,6 +20,7 @@ const (
 	tagDeleteTable  = 2
 	tagLastSequence = 3
 	tagNextFileNum  = 4
+	tagLogNum       = 5
 )
 
 type TableMeta struct {
