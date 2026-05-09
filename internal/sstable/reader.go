@@ -1,6 +1,7 @@
 package sstable
 
 import (
+	"log"
 	"os"
 
 	"github.com/a4eiron/ascentdb/internal/record"
@@ -57,8 +58,12 @@ func Open(path string) (*TableReader, error) {
 
 func (r *TableReader) Get(key record.InternalKey) (*record.Record, bool, error) {
 
+	defer func() {
+		log.Println("inside sstable reader Get", key.UserKey)
+	}()
 	entry := r.findBlock(key)
 	if entry == nil {
+
 		return nil, false, nil
 	}
 
@@ -68,8 +73,7 @@ func (r *TableReader) Get(key record.InternalKey) (*record.Record, bool, error) 
 	}
 
 	for _, rec := range block.entries {
-		cmp := rec.InternalKey.Compare(key)
-		if cmp == 0 {
+		if rec.InternalKey.UserKey == key.UserKey {
 			if rec.Type == record.TypeDel {
 				return nil, false, nil
 			}
@@ -91,9 +95,9 @@ func (r *TableReader) readBlock(offset uint64, size uint32) (*Block, error) {
 }
 
 func (r *TableReader) findBlock(key record.InternalKey) *IndexEntry {
-	for _, entry := range r.index.entries {
+	for i, entry := range r.index.entries {
 		if entry.SeparatorKey.Compare(key) >= 0 {
-			return &entry
+			return &r.index.entries[i]
 		}
 	}
 	return nil

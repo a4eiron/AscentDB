@@ -76,7 +76,6 @@ func Replay(w *WAL, fn func(r *record.Record) error) error {
 		expectedCRC := binary.LittleEndian.Uint32(crcBuf)
 
 		sizeBuf := make([]byte, 4)
-
 		_, err = io.ReadFull(w.file, sizeBuf)
 		if err != nil {
 			return err
@@ -85,14 +84,12 @@ func Replay(w *WAL, fn func(r *record.Record) error) error {
 		recSize := binary.LittleEndian.Uint32(sizeBuf)
 
 		recBuf := make([]byte, recSize)
-
 		_, err = io.ReadFull(w.file, recBuf)
 		if err != nil {
 			return err
 		}
 
 		actualCRC := crc32.ChecksumIEEE(recBuf)
-
 		if actualCRC != expectedCRC {
 			return errors.New("wal: corrupt record")
 		}
@@ -108,4 +105,8 @@ func Replay(w *WAL, fn func(r *record.Record) error) error {
 	}
 
 	return nil
+}
+
+func (w *WAL) Path() string {
+	return w.file.Name()
 }

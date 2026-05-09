@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/a4eiron/ascentdb/internal/config"
 	"github.com/a4eiron/ascentdb/internal/memtable"
+	"github.com/a4eiron/ascentdb/internal/meta"
 	"github.com/a4eiron/ascentdb/internal/record"
 	"github.com/a4eiron/ascentdb/internal/sstable"
 	"github.com/a4eiron/ascentdb/internal/wal"
@@ -24,7 +26,7 @@ type Engine struct {
 	mt   *memtable.Memtable
 	immt *memtable.Memtable
 
-	sstables []*sstable.TableReader
+	vs *meta.VersionSet
 
 	flushChan chan *flushTask
 	flushing  bool
@@ -50,8 +52,15 @@ func New(opts *config.Options) (*Engine, error) {
 	e := &Engine{
 		opts:      opts,
 		mt:        memtable.New(64 * 1024),
-		flushChan: make(chan *flushTask, 1),
+		flushChan: make(chan *flushTask, 6),
 	}
+
+	vs, err := meta.Open(opts.DataDir)
+	if err != nil {
+		return nil, err
+	}
+
+	e.vs = vs
 
 	if e.opts.CrashRecovery {
 		wal, err := wal.Open(filepath.Join(opts.DataDir, "wal", fmt.Sprintf("wal-%06d", e.fileNum)))
@@ -75,7 +84,6 @@ func New(opts *config.Options) (*Engine, error) {
 
 func (e *Engine) Put(key string, value []byte) {
 	e.mu.Lock()
-	defer e.mu.Unlock()
 
 	r := &record.Record{
 		InternalKey: record.InternalKey{
@@ -94,8 +102,13 @@ func (e *Engine) Put(key string, value []byte) {
 	e.mt.Put(r)
 
 	if e.mt.IsFull() {
-		e.rotate()
+		if task, err := e.rotate(); err != nil {
+			log.Println(err)
+		} else {
+			e.flushChan <- task
+		}
 	}
+	e.mu.Unlock()
 }
 
 func (e *Engine) Get(key string) ([]byte, bool) {
@@ -108,16 +121,43 @@ func (e *Engine) Get(key string) ([]byte, bool) {
 	}
 
 	// if not present in the active memtable, check the immutable memtable
-	if val, ok := e.immt.Get(key); ok {
-		return val, ok
+	if e.immt != nil {
+		if val, ok := e.immt.Get(key); ok {
+			return val, ok
+		}
 	}
 
-	// lookupKey := record.InternalKey{
-	// 	UserKey: key,
-	// 	SeqNum:  math.MaxUint64,
-	// }
+	lookupKey := record.InternalKey{
+		UserKey: key,
+		SeqNum:  math.MaxUint64,
+	}
 
-	// TODO: sstable check
+	for level := range e.vs.Current.Levels {
+		tables := e.vs.Current.Levels[level]
+		for i := len(tables) - 1; i >= 0; i-- {
+			t := tables[i]
+
+			if key < t.MinKey.UserKey || key > t.MaxKey.UserKey {
+				continue
+			}
+
+			path := filepath.Join(e.opts.DataDir, "tables", fmt.Sprintf("table-%06d", t.FileNum))
+
+			reader, err := sstable.Open(path)
+			if err != nil {
+				continue
+			}
+
+			rec, ok, err := reader.Get(lookupKey)
+			if err != nil {
+				continue
+			}
+			if ok {
+				return rec.Value, true
+			}
+		}
+	}
+
 	return nil, false
 }
 

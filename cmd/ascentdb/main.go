@@ -22,18 +22,23 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	// for i := range 3000 {
-	// 	e.Put(
-	// 		fmt.Sprintf("key-%d", i),
-	// 		fmt.Appendf(nil, "value-%d", i),
-	// 	)
-	// }
-
 	for i := range 3000 {
-		if val, ok := e.Get(fmt.Sprintf("key-%d", i)); ok {
+		e.Put(
+			fmt.Sprintf("key-%d", i),
+			fmt.Appendf(nil, "value-%d", i),
+		)
+	}
+
+	counter := 0
+	for i := range 3000 {
+		key := fmt.Sprintf("key-%d", i)
+		if val, ok := e.Get(key); ok {
+			counter++
 			fmt.Println(string(val))
 		} else {
-			fmt.Println("missed it")
+			fmt.Println("missed key", key)
+
 		}
 	}
+	log.Println("counter:", counter)
 }

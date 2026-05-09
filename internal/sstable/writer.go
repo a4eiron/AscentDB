@@ -37,6 +37,19 @@ func (w *TableWriter) Add(r record.Record) error {
 	return nil
 }
 
+func (w *TableWriter) Path() string {
+	return w.file.Name()
+}
+
+func (w *TableWriter) Size() (int64, error) {
+	stat, err := w.file.Stat()
+	if err != nil {
+		return 0, err
+	}
+	size := stat.Size()
+	return size, nil
+}
+
 func (w *TableWriter) flushBlock() error {
 	if len(w.block.entries) < 1 {
 		return nil
