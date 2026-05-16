@@ -65,7 +65,7 @@ func (sl *Skiplist) insert(key record.InternalKey, value []byte) {
 
 }
 
-func (sl *Skiplist) search(userKey string) ([]byte, bool) {
+func (sl *Skiplist) search(userKey string) ([]byte, bool, bool) {
 
 	lookupKey := record.InternalKey{
 		UserKey: userKey,
@@ -83,13 +83,14 @@ func (sl *Skiplist) search(userKey string) ([]byte, bool) {
 
 	if curr != nil && curr.key.UserKey == userKey {
 		if curr.key.Type == record.TypeDel {
-			return nil, false
+			// fucking bitch, found you, need to differentiate b/w not found and deleted
+			return nil, true, true
 		}
 
-		return curr.value, true
+		return curr.value, true, false
 	}
 
-	return nil, false
+	return nil, false, false
 }
 
 func (sl *Skiplist) randomLevel() int {

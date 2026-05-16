@@ -47,6 +47,9 @@ func NewMergeIterator(iters []*sstable.Iterator) *MergeIterator {
 	heap.Init(h)
 
 	for _, iter := range iters {
+		if !iter.Valid() {
+			continue
+		}
 		heap.Push(h, &heapItem{
 			iter: iter,
 			record: &record.Record{

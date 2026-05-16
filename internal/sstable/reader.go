@@ -77,11 +77,7 @@ func (r *TableReader) Get(key record.InternalKey) (*record.Record, bool, error) 
 	}
 
 	rec := block.entries[idx]
-	if rec.Type == record.TypeDel {
-		return nil, false, nil
-	}
-
-	return &block.entries[idx], true, nil
+	return &rec, true, nil
 }
 
 func (r *TableReader) readBlock(offset uint64, size uint32) (*Block, error) {

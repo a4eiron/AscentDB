@@ -120,14 +120,21 @@ func (e *Engine) Get(key string) ([]byte, bool) {
 	defer e.mu.Unlock()
 
 	// first check active memtable
-	if val, ok := e.mt.Get(key); ok {
-		return val, ok
+	if val, found, deleted := e.mt.Get(key); found {
+		if deleted {
+			return nil, false
+		}
+
+		return val, true
 	}
 
 	// if not present in the active memtable, check the immutable memtable
 	if e.immt != nil {
-		if val, ok := e.immt.Get(key); ok {
-			return val, ok
+		if val, found, deleted := e.immt.Get(key); found {
+			if deleted {
+				return nil, false
+			}
+			return val, true
 		}
 	}
 
@@ -137,11 +144,13 @@ func (e *Engine) Get(key string) ([]byte, bool) {
 		SeqNum:  math.MaxUint64,
 	}
 
+	var best *record.Record
+
 	for level := range e.vs.Current.Levels {
 		tables := e.vs.Current.Levels[level]
+
 		for i := len(tables) - 1; i >= 0; i-- {
 			t := tables[i]
-
 			if key < t.MinKey.UserKey || key > t.MaxKey.UserKey {
 				continue
 			}
@@ -154,17 +163,22 @@ func (e *Engine) Get(key string) ([]byte, bool) {
 			}
 
 			rec, ok, err := reader.Get(lookupKey)
-			if err != nil {
+			if err != nil || !ok {
 				continue
 			}
-			if ok {
-				log.Println("SSTable SEARCH Checkpoint=====================================")
-				log.Println("SSTable SEARCH Checkpoint=====================================")
-				log.Println("SSTable SEARCH Checkpoint=====================================")
-				log.Println("SSTable SEARCH Checkpoint=====================================")
-				return rec.Value, true
+
+			if best == nil || rec.SeqNum > best.SeqNum {
+				best = rec
 			}
 		}
+
+	}
+
+	if best != nil {
+		if best.Type == record.TypeDel {
+			return nil, false
+		}
+		return best.Value, true
 	}
 
 	return nil, false
@@ -191,6 +205,10 @@ func (e *Engine) Delete(key string) {
 	e.mt.Put(r)
 
 	if e.mt.IsFull() {
-		e.rotate()
+		if task, err := e.rotate(); err != nil {
+			log.Println(err)
+		} else {
+			e.flushChan <- task
+		}
 	}
 }

@@ -16,7 +16,8 @@ import (
 func (e *Engine) scheduleCompaction() {
 	fileNum := e.vs.NextFileNum()
 
-	l0 := e.vs.Current.Levels[0]
+	l0 := append([]*meta.TableMeta(nil), e.vs.Current.Levels[0]...)
+
 	if len(l0) > 2 {
 		log.Println("Compating L0)")
 		time.Sleep(4 * time.Second)
@@ -31,7 +32,8 @@ func (e *Engine) CompactL0(dataDir string, l0 []*meta.TableMeta, fileNum uint64)
 	var deletedTablesMeta []*meta.DeletedTableMeta
 
 	// open iterators on Level - 0
-	for _, t := range l0 {
+	for i := len(l0) - 1; i >= 0; i-- {
+		t := l0[i]
 		path := filepath.Join(dataDir, "tables", fmt.Sprintf("table-%06d", t.FileNum))
 		reader, err := sstable.Open(path)
 		if err != nil {
@@ -75,10 +77,10 @@ func (e *Engine) CompactL0(dataDir string, l0 []*meta.TableMeta, fileNum uint64)
 		lastUserKey = rec.UserKey
 
 		// drop tombstones
-		if rec.Type == record.TypeDel {
-			merger.Next()
-			continue
-		}
+		// if rec.Type == record.TypeDel {
+		// 	merger.Next()
+		// 	continue
+		// }
 
 		if err := writer.Add(*rec); err != nil {
 			log.Println(err)
@@ -108,7 +110,7 @@ func (e *Engine) CompactL0(dataDir string, l0 []*meta.TableMeta, fileNum uint64)
 			{
 				FileNum:  fileNum,
 				FileSize: uint64(fileSize),
-				Level:    0,
+				Level:    1,
 				MinKey:   firstKey,
 				MaxKey:   lastKey,
 			},

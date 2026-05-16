@@ -37,7 +37,7 @@ func (m *Memtable) Put(r *record.Record) error {
 	return nil
 }
 
-func (m *Memtable) Get(userKey string) ([]byte, bool) {
+func (m *Memtable) Get(userKey string) ([]byte, bool, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.list.search(userKey)
