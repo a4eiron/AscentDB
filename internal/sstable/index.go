@@ -137,6 +137,15 @@ func decodeIndexEntry(b []byte) (*IndexEntry, error) {
 		},
 	}
 
+
+
+
+
+
+
+
+
+
 	return entry, nil
 
 }

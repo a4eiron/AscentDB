@@ -30,7 +30,6 @@ type Engine struct {
 	vs *meta.VersionSet
 
 	flushChan chan *flushTask
-	flushing  bool
 
 	seqNum  uint64 // for every put/delete
 	fileNum uint64 // sstable file sequence
@@ -132,6 +131,7 @@ func (e *Engine) Get(key string) ([]byte, bool) {
 		}
 	}
 
+	// then, check sstables
 	lookupKey := record.InternalKey{
 		UserKey: key,
 		SeqNum:  math.MaxUint64,
@@ -158,6 +158,10 @@ func (e *Engine) Get(key string) ([]byte, bool) {
 				continue
 			}
 			if ok {
+				log.Println("SSTable SEARCH Checkpoint=====================================")
+				log.Println("SSTable SEARCH Checkpoint=====================================")
+				log.Println("SSTable SEARCH Checkpoint=====================================")
+				log.Println("SSTable SEARCH Checkpoint=====================================")
 				return rec.Value, true
 			}
 		}

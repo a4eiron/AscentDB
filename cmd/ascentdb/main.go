@@ -10,6 +10,7 @@ import (
 )
 
 func main() {
+
 	log.SetFlags(log.Lshortfile)
 
 	e, err := engine.New(&config.Options{
@@ -23,8 +24,7 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	time.Sleep(3 * time.Second)
-	// for i := range 6000 {
+	// for i := range 10000 {
 	// 	e.Put(
 	// 		fmt.Sprintf("key-%d", i),
 	// 		fmt.Appendf(nil, "value-%d", i),
@@ -33,16 +33,13 @@ func main() {
 
 	time.Sleep(3 * time.Second)
 	counter := 0
-	for i := range 6000 {
+	for i := range 10000 {
 		key := fmt.Sprintf("key-%d", i)
 		if val, ok := e.Get(key); ok {
 			counter++
 			fmt.Println(string(val))
 		} else {
-
-			time.Sleep(3 * time.Second)
 			fmt.Println("missed key", key)
-
 		}
 	}
 	log.Println("counter:", counter)

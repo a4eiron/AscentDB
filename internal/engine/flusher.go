@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/a4eiron/ascentdb/internal/memtable"
 	"github.com/a4eiron/ascentdb/internal/meta"
@@ -36,6 +37,9 @@ func (e *Engine) rotate() (*flushTask, error) {
 	// crate  new memtable and wal
 	fileNum := e.vs.NextFileNum()
 
+	log.Println("wal ", fileNum)
+	time.Sleep(4 * time.Second)
+
 	newWal, err := wal.Open(filepath.Join(e.opts.DataDir, "wal", fmt.Sprintf("wal-%06d", fileNum)))
 	if err != nil {
 		log.Println("failed to create new WAL", err)
@@ -60,6 +64,8 @@ func (e *Engine) rotate() (*flushTask, error) {
 	}
 
 	fileNum = e.vs.NextFileNum()
+	log.Println("sstable ", fileNum)
+	time.Sleep(4 * time.Second)
 
 	task := &flushTask{
 		oldWal:       oldWal,
@@ -141,6 +147,10 @@ func (e *Engine) runFlusher() {
 		e.immt = nil
 		e.imwal = nil
 
+		fileNum = e.vs.NextFileNum()
+		if len(e.vs.Current.Levels[0]) > 4 {
+			e.scheduleCompaction()
+		}
 		e.mu.Unlock()
 	}
 
