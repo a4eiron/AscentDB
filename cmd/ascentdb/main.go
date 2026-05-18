@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/a4eiron/ascentdb/internal/config"
 	"github.com/a4eiron/ascentdb/internal/engine"
@@ -24,23 +23,30 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	// for i := range 10000 {
-	// 	e.Put(
-	// 		fmt.Sprintf("key-%d", i),
-	// 		fmt.Appendf(nil, "value-%d", i),
-	// 	)
-	// }
+	num := 30000
 
-	time.Sleep(3 * time.Second)
-	counter := 0
-	for i := range 10000 {
-		key := fmt.Sprintf("key-%d", i)
+	for i := range num {
+		key := fmt.Sprintf("key-%06d", i)
+		value := fmt.Sprintf("value-%06d-updated", i)
+		e.Put(key, []byte(value))
+	}
+
+	for i := range num - 2000 - 422 {
+		key := fmt.Sprintf("key-%06d", i)
+		e.Delete(key)
+	}
+
+	count := 0
+	for i := range num {
+		key := fmt.Sprintf("key-%06d", i)
 		if val, ok := e.Get(key); ok {
-			counter++
+			count++
 			fmt.Println(string(val))
 		} else {
-			fmt.Println("missed key", key)
+			fmt.Println(key, "not found")
 		}
 	}
-	log.Println("counter:", counter)
+
+	fmt.Println("count:", count, num-422)
+
 }

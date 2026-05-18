@@ -83,7 +83,6 @@ func (sl *Skiplist) search(userKey string) ([]byte, bool, bool) {
 
 	if curr != nil && curr.key.UserKey == userKey {
 		if curr.key.Type == record.TypeDel {
-			// fucking bitch, found you, need to differentiate b/w not found and deleted
 			return nil, true, true
 		}
 

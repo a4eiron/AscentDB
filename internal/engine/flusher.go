@@ -36,9 +36,6 @@ func (e *Engine) rotate() (*flushTask, error) {
 	// crate  new memtable and wal
 	fileNum := e.vs.NextFileNum()
 
-	// log.Println("wal ", fileNum)
-	// time.Sleep(4 * time.Second)
-
 	newWal, err := wal.Open(filepath.Join(e.opts.DataDir, "wal", fmt.Sprintf("wal-%06d", fileNum)))
 	if err != nil {
 		log.Println("failed to create new WAL", err)
@@ -55,7 +52,8 @@ func (e *Engine) rotate() (*flushTask, error) {
 
 	// create an sstable writer
 	fileNum = e.vs.NextFileNum()
-	path := filepath.Join(e.opts.DataDir, "tables", fmt.Sprintf("table-%06d", fileNum))
+	e.ensureLevelDir(0)
+	path := e.tablePath(0, fileNum)
 
 	writer, err := sstable.Create(path, blockSize)
 	if err != nil {
@@ -63,8 +61,6 @@ func (e *Engine) rotate() (*flushTask, error) {
 	}
 
 	fileNum = e.vs.NextFileNum()
-	// log.Println("sstable ", fileNum)
-	// time.Sleep(4 * time.Second)
 
 	task := &flushTask{
 		oldWal:       oldWal,
@@ -93,11 +89,11 @@ func (e *Engine) runFlusher() {
 				first = false
 			}
 
-			log.Println("FLUSH:", key)
 			err := task.writer.Add(record.Record{
 				InternalKey: key,
 				Value:       value,
 			})
+
 			lastKey = key
 
 			if err != nil {
@@ -105,7 +101,10 @@ func (e *Engine) runFlusher() {
 			}
 		}
 
+		e.mu.Lock()
 		nextFileNum := e.vs.NextFileNum()
+		e.mu.Unlock()
+
 		var fileNum uint64
 		base := filepath.Base(task.writer.Path())
 		fmt.Sscanf(base, "table-%06d", &fileNum)
@@ -136,6 +135,7 @@ func (e *Engine) runFlusher() {
 		if err := e.vs.LogAndApply(edit); err != nil {
 			log.Println(err)
 		}
+		e.mu.Unlock()
 
 		if err := task.oldWal.Close(); err != nil {
 			log.Println("failed to close wal:", task.oldWalPath, err)
@@ -143,6 +143,8 @@ func (e *Engine) runFlusher() {
 		if err := os.Remove(task.oldWalPath); err != nil {
 			log.Println("failed to delete wal:", task.oldWalPath, err)
 		}
+
+		e.mu.Lock()
 
 		e.immt = nil
 		e.imwal = nil
