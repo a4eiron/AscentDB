@@ -14,11 +14,10 @@ import (
 )
 
 type flushTask struct {
-	oldWalPath   string
-	oldWal       *wal.WAL
-	mt           *memtable.Memtable
-	writer       *sstable.TableWriter
-	manifestPath string
+	oldWalPath string
+	oldWal     *wal.WAL
+	mt         *memtable.Memtable
+	writer     *sstable.TableWriter
 }
 
 func (e *Engine) rotate() (*flushTask, error) {
@@ -63,97 +62,95 @@ func (e *Engine) rotate() (*flushTask, error) {
 	fileNum = e.vs.NextFileNum()
 
 	task := &flushTask{
-		oldWal:       oldWal,
-		oldWalPath:   oldWal.Path(),
-		mt:           mt,
-		writer:       writer,
-		manifestPath: filepath.Join(e.opts.DataDir, fmt.Sprintf("MANIFEST-%06d", fileNum)),
+		oldWal:     oldWal,
+		oldWalPath: oldWal.Path(),
+		mt:         mt,
+		writer:     writer,
 	}
 
 	return task, nil
 }
 
 func (e *Engine) runFlusher() {
-
 	for task := range e.flushChan {
-
-		first := true
-		var firstKey, lastKey record.InternalKey
-
-		for iter := task.mt.Iterator(); iter.Valid(); iter.Next() {
-			key := iter.Key()
-			value := iter.Value()
-
-			if first {
-				firstKey = key
-				first = false
-			}
-
-			err := task.writer.Add(record.Record{
-				InternalKey: key,
-				Value:       value,
-			})
-
-			lastKey = key
-
-			if err != nil {
-				log.Println("failed to write to add to sstable:", err)
-			}
-		}
-
-		e.mu.Lock()
-		nextFileNum := e.vs.NextFileNum()
-		e.mu.Unlock()
-
-		var fileNum uint64
-		base := filepath.Base(task.writer.Path())
-		fmt.Sscanf(base, "table-%06d", &fileNum)
-		fileSize, err := task.writer.Size()
-		if err != nil {
+		if err := e.flush(task); err != nil {
 			log.Println(err)
 		}
+	}
+}
 
-		if err := task.writer.Close(); err != nil {
-			log.Println("failed to close sstable:", err)
+func (e *Engine) flush(task *flushTask) error {
+
+	first := true
+	var firstKey, lastKey record.InternalKey
+
+	for iter := task.mt.Iterator(); iter.Valid(); iter.Next() {
+		key := iter.Key()
+		value := iter.Value()
+
+		if first {
+			firstKey = key
+			first = false
 		}
+		lastKey = key
 
-		edit := &meta.VersionEdit{
-			NextFileNum:  &nextFileNum,
-			LastSequence: &lastKey.SeqNum,
-			AddTables: []*meta.TableMeta{
-				{
-					FileNum:  fileNum,
-					FileSize: uint64(fileSize),
-					Level:    0,
-					MinKey:   firstKey,
-					MaxKey:   lastKey,
-				},
-			},
+		if err := task.writer.Add(record.Record{
+			InternalKey: key,
+			Value:       value,
+		}); err != nil {
+			return fmt.Errorf("failed to write to add to sstable: %w", err)
 		}
-
-		e.mu.Lock()
-		if err := e.vs.LogAndApply(edit); err != nil {
-			log.Println(err)
-		}
-		e.mu.Unlock()
-
-		if err := task.oldWal.Close(); err != nil {
-			log.Println("failed to close wal:", task.oldWalPath, err)
-		}
-		if err := os.Remove(task.oldWalPath); err != nil {
-			log.Println("failed to delete wal:", task.oldWalPath, err)
-		}
-
-		e.mu.Lock()
-
-		e.immt = nil
-		e.imwal = nil
-
-		fileNum = e.vs.NextFileNum()
-		if len(e.vs.Current.Levels[0]) > 4 {
-			e.scheduleCompaction()
-		}
-		e.mu.Unlock()
 	}
 
+	var fileNum uint64
+	fmt.Sscanf(filepath.Base(task.writer.Path()), "table-%06d", &fileNum)
+
+	fileSize, err := task.writer.Size()
+	if err != nil {
+		return fmt.Errorf("failed to get writer size: %w", err)
+	}
+
+	if err := task.writer.Close(); err != nil {
+		return fmt.Errorf("failed to close sstable: %w", err)
+	}
+
+	e.mu.Lock()
+	nextFileNum := e.vs.NextFileNum()
+	e.mu.Unlock()
+
+	edit := &meta.VersionEdit{
+		NextFileNum:  &nextFileNum,
+		LastSequence: &lastKey.SeqNum,
+		AddTables: []*meta.TableMeta{
+			{
+				FileNum:  fileNum,
+				FileSize: uint64(fileSize),
+				Level:    0,
+				MinKey:   firstKey,
+				MaxKey:   lastKey,
+			},
+		},
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if err := e.vs.LogAndApply(edit); err != nil {
+		log.Println(err)
+	}
+
+	if err := task.oldWal.Close(); err != nil {
+		log.Println("failed to close wal:", task.oldWalPath, err)
+	}
+	if err := os.Remove(task.oldWalPath); err != nil {
+		log.Println("failed to delete wal:", task.oldWalPath, err)
+	}
+
+	e.immt = nil
+	e.imwal = nil
+	if len(e.vs.Current.Levels[0]) >= maxL0Files {
+		e.scheduleCompaction()
+	}
+
+	return nil
 }
