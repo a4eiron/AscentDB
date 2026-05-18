@@ -5,53 +5,76 @@ import (
 	"errors"
 	"hash/crc32"
 	"io"
-	"log"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/a4eiron/ascentdb/internal/codec"
 	"github.com/a4eiron/ascentdb/internal/record"
 )
 
 type WAL struct {
-	file *os.File
-	mu   sync.Mutex
+	file      *os.File
+	mu        sync.Mutex
+	syncChan  chan struct{}
+	closeChan chan struct{}
+	interval  time.Duration
 }
 
-func Open(path string) (*WAL, error) {
+func Open(path string, syncInternval time.Duration) (*WAL, error) {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0644)
 	if err != nil {
 		return nil, err
 	}
 
-	return &WAL{
-		file: file,
-	}, nil
+	wal := &WAL{
+		file:      file,
+		syncChan:  make(chan struct{}),
+		closeChan: make(chan struct{}),
+		interval:  syncInternval,
+	}
+
+	if syncInternval > 0 {
+		go wal.syncer()
+	}
+
+	return wal, nil
+}
+
+func (w *WAL) syncer() {
+	ticker := time.NewTicker(w.interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			w.mu.Lock()
+			w.file.Sync()
+
+			old := w.syncChan
+			w.syncChan = make(chan struct{})
+			w.mu.Unlock()
+			close(old)
+		case <-w.closeChan:
+			return
+		}
+	}
+
 }
 
 func (w *WAL) Append(r *record.Record) error {
 	recordBytes := record.EncodeRecord(r)
-
 	crc := crc32.ChecksumIEEE(recordBytes)
 
 	buf := codec.NewBuffer(4 + 4 + len(recordBytes))
-
 	buf.WriteUint32(crc)
 	buf.WriteUint32(uint32(len(recordBytes)))
 	buf.WriteBytes(recordBytes)
 
-	b := buf.Bytes()
-
 	w.mu.Lock()
-	n, err := w.file.Write(b)
-	if err != nil {
-		return err
-	}
+	_, err := w.file.Write(buf.Bytes())
 	w.mu.Unlock()
-
-	log.Println(n, len(buf.Bytes()))
-
-	return w.file.Sync()
+	return err
 }
 
 func Replay(w *WAL, fn func(r *record.Record) error) error {
@@ -107,12 +130,24 @@ func Replay(w *WAL, fn func(r *record.Record) error) error {
 	return nil
 }
 
+func (w *WAL) Sync() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.file.Sync()
+}
+
 func (w *WAL) Path() string {
 	return w.file.Name()
 }
 
 func (w *WAL) Close() error {
+	if w.interval > 0 {
+		close(w.closeChan)
+	}
+
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
+	w.file.Sync()
 	return w.file.Close()
 }

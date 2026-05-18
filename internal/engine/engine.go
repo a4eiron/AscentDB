@@ -6,9 +6,9 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/a4eiron/ascentdb/internal/config"
 	"github.com/a4eiron/ascentdb/internal/memtable"
@@ -79,9 +79,8 @@ func New(opts *config.Options) (*Engine, error) {
 	if e.opts.CrashRecovery {
 		walPath := filepath.Join(opts.DataDir, "wal", fmt.Sprintf("wal-%06d", e.vs.LogNumber()))
 		log.Println("Opening wal", walPath)
-		time.Sleep(4 * time.Second)
 
-		wal, err := wal.Open(walPath)
+		wal, err := wal.Open(walPath, e.opts.WALSyncInterval)
 		if err != nil {
 			log.Println(err)
 			return nil, err
@@ -97,6 +96,7 @@ func New(opts *config.Options) (*Engine, error) {
 	// background flusher
 	go e.runFlusher()
 
+	log.Println("launched flusher:", runtime.NumGoroutine())
 	return e, nil
 }
 
@@ -243,6 +243,35 @@ func (e *Engine) Delete(key string) {
 		e.flushWg.Add(1)
 		e.flushChan <- task
 	}
+}
+
+func (e *Engine) Sync() error {
+	if e.opts.CrashRecovery && e.wal != nil {
+		e.mu.Lock()
+		err := e.wal.Sync()
+		e.mu.Unlock()
+		if err != nil {
+			return err
+		}
+	}
+
+	e.mu.Lock()
+	if e.mt.Size() == 0 {
+		e.mu.Unlock()
+		return nil
+	}
+	task, err := e.rotate()
+	if err != nil {
+		e.mu.Unlock()
+		return err
+	}
+	e.mu.Unlock()
+
+	e.flushWg.Add(1)
+	e.flushChan <- task
+	e.flushWg.Wait()
+
+	return nil
 }
 
 func (e *Engine) Close() error {

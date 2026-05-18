@@ -35,7 +35,7 @@ func (e *Engine) rotate() (*flushTask, error) {
 	// crate  new memtable and wal
 	fileNum := e.vs.NextFileNum()
 
-	newWal, err := wal.Open(filepath.Join(e.opts.DataDir, "wal", fmt.Sprintf("wal-%06d", fileNum)))
+	newWal, err := wal.Open(filepath.Join(e.opts.DataDir, "wal", fmt.Sprintf("wal-%06d", fileNum)), e.opts.WALSyncInterval)
 	if err != nil {
 		log.Println("failed to create new WAL", err)
 		return nil, err

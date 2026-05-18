@@ -21,13 +21,6 @@ func (iter *Iterator) Next() {
 		return
 	}
 	iter.curr = iter.curr.forward[0]
-
-	// for iter.curr != nil && iter.curr.forward[0] != nil {
-	// 	if iter.curr.key.UserKey != iter.curr.forward[0].key.UserKey {
-	// 		break
-	// 	}
-	// 	iter.curr = iter.curr.forward[0]
-	// }
 }
 
 func (iter *Iterator) Valid() bool {
