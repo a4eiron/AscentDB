@@ -32,6 +32,7 @@ type Engine struct {
 	vs *meta.VersionSet
 
 	flushChan chan *flushTask
+	flushWg   sync.WaitGroup
 
 	isCompacting   atomic.Bool
 	compactPointer [7]string
@@ -135,6 +136,7 @@ func (e *Engine) Put(key string, value []byte) {
 	e.mu.Unlock()
 
 	if task != nil {
+		e.flushWg.Add(1)
 		e.flushChan <- task
 	}
 }
@@ -238,8 +240,38 @@ func (e *Engine) Delete(key string) {
 	e.mu.Unlock()
 
 	if task != nil {
+		e.flushWg.Add(1)
 		e.flushChan <- task
 	}
+}
+
+func (e *Engine) Close() error {
+	var task *flushTask
+	e.mu.Lock()
+	if e.mt.Size() > 0 {
+		log.Println("FLUSHING BEFORE CLOSE")
+		var err error
+		task, err = e.rotate()
+		if err != nil {
+			e.mu.Unlock()
+			return err
+		}
+	}
+	e.mu.Unlock()
+
+	if task != nil {
+		e.flushWg.Add(1)
+		e.flushChan <- task
+	}
+
+	e.flushWg.Wait()
+
+	close(e.flushChan)
+
+	if e.wal != nil {
+		return e.wal.Close()
+	}
+	return nil
 }
 
 func (e *Engine) getReader(t *meta.TableMeta) (*sstable.TableReader, error) {

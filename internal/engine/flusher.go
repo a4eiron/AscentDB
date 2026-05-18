@@ -59,8 +59,6 @@ func (e *Engine) rotate() (*flushTask, error) {
 		return nil, err
 	}
 
-	fileNum = e.vs.NextFileNum()
-
 	task := &flushTask{
 		oldWal:     oldWal,
 		oldWalPath: oldWal.Path(),
@@ -76,6 +74,7 @@ func (e *Engine) runFlusher() {
 		if err := e.flush(task); err != nil {
 			log.Println(err)
 		}
+		e.flushWg.Done()
 	}
 }
 

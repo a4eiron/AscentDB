@@ -12,6 +12,8 @@ func main() {
 
 	log.SetFlags(log.Lshortfile)
 
+	num := 3000
+
 	e, err := engine.New(&config.Options{
 		DataDir:       "./data",
 		BlockSize:     64 * 1024,
@@ -23,30 +25,24 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	num := 30000
+	defer e.Close()
 
 	for i := range num {
-		key := fmt.Sprintf("key-%06d", i)
-		value := fmt.Sprintf("value-%06d-updated", i)
+		key := fmt.Sprintf("key-%d", i)
+		value := fmt.Sprintf("value-%d", i)
 		e.Put(key, []byte(value))
 	}
 
-	for i := range num - 2000 - 422 {
-		key := fmt.Sprintf("key-%06d", i)
-		e.Delete(key)
-	}
-
-	count := 0
+	counter := 0
 	for i := range num {
-		key := fmt.Sprintf("key-%06d", i)
+		key := fmt.Sprintf("key-%d", i)
 		if val, ok := e.Get(key); ok {
-			count++
+			counter++
 			fmt.Println(string(val))
 		} else {
-			fmt.Println(key, "not found")
+			fmt.Println(key, "MISSED")
 		}
 	}
-
-	fmt.Println("count:", count, num-422)
+	log.Println(counter)
 
 }
