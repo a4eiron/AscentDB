@@ -8,7 +8,7 @@ import (
 
 func TestIndexEntryEncodeDecode(t *testing.T) {
 
-	original := IndexEntry{
+	original := &IndexEntry{
 		SeparatorKey: record.InternalKey{
 			UserKey: "key-42",
 			SeqNum:  99,
@@ -68,7 +68,7 @@ func TestIndexEntryEncodeDecode(t *testing.T) {
 
 func TestIndexBlockEncodeDecode(t *testing.T) {
 
-	original := IndexBlock{
+	original := &IndexBlock{
 		entries: []IndexEntry{
 			{
 				SeparatorKey: record.InternalKey{

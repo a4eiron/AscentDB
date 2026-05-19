@@ -17,7 +17,7 @@ type IndexEntry struct {
 
 // [num_entries(4)]
 // [entries(variant)...]
-func encodeIndexBlock(b IndexBlock) []byte {
+func encodeIndexBlock(b *IndexBlock) []byte {
 	var size int
 
 	size += 4 // num_entries
@@ -25,7 +25,7 @@ func encodeIndexBlock(b IndexBlock) []byte {
 	encodedEntries := make([][]byte, 0, len(b.entries))
 
 	for _, entry := range b.entries {
-		encodedEntry := encodeIndexEntry(entry)
+		encodedEntry := encodeIndexEntry(&entry)
 		encodedEntries = append(encodedEntries, encodedEntry)
 		size += 4
 		size += len(encodedEntry)
@@ -73,7 +73,7 @@ func decodeIndexBlock(b []byte) (*IndexBlock, error) {
 	return block, nil
 }
 
-func encodeIndexEntry(e IndexEntry) []byte {
+func encodeIndexEntry(e *IndexEntry) []byte {
 
 	var size int
 
@@ -136,15 +136,6 @@ func decodeIndexEntry(b []byte) (*IndexEntry, error) {
 			Type:    record.IKType(t),
 		},
 	}
-
-
-
-
-
-
-
-
-
 
 	return entry, nil
 

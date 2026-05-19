@@ -132,7 +132,6 @@ func (e *Engine) flush(task *flushTask) error {
 	}
 
 	e.mu.Lock()
-	defer e.mu.Unlock()
 
 	if err := e.vs.LogAndApply(edit); err != nil {
 		log.Println(err)
@@ -151,5 +150,6 @@ func (e *Engine) flush(task *flushTask) error {
 		e.scheduleCompaction()
 	}
 
+	e.mu.Unlock()
 	return nil
 }

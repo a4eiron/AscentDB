@@ -24,11 +24,10 @@ func (e *Engine) scheduleCompaction() {
 		return
 	}
 
-	if len(e.vs.Current.Levels[0]) > maxL0Files {
+	if len(e.vs.Current.Levels[0]) >= maxL0Files {
 		inputs := e.pickCompactionInputs(0)
 		outFileNum := e.vs.NextFileNum()
 		go func() {
-			defer e.isCompacting.Store(false)
 			e.compactLevel(0, inputs, outFileNum)
 		}()
 		return
@@ -40,7 +39,6 @@ func (e *Engine) scheduleCompaction() {
 			inputs := e.pickCompactionInputs(level)
 			outFileNum := e.vs.NextFileNum()
 			go func() {
-				defer e.isCompacting.Store(false)
 				e.compactLevel(level, inputs, outFileNum)
 			}()
 			return
@@ -114,8 +112,12 @@ func (e *Engine) compactLevel(level int, inputs []*meta.TableMeta, outFileNum ui
 		delete(e.tableCache, t.FileNum)
 		os.Remove(e.tablePath(int(t.Level), t.FileNum))
 	}
-
+	shouldCompact := len(e.vs.Current.Levels[0]) >= maxL0Files
 	e.mu.Unlock()
+	e.isCompacting.Store(false)
+	if shouldCompact {
+		e.scheduleCompaction()
+	}
 }
 
 func (e *Engine) writeCompactionOutput(

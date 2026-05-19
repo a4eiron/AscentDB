@@ -9,9 +9,9 @@ type Block struct {
 	entries []record.Record
 }
 
-func encodeBlock(b Block) []byte {
+func encodeBlock(b *Block) []byte {
 
-	size := blockSize(b)
+	size := blockSize(*b)
 	buf := codec.NewBuffer(size)
 
 	// blocksize

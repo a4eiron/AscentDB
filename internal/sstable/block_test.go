@@ -9,7 +9,7 @@ import (
 
 func TestBlockEncodeDecode(t *testing.T) {
 
-	original := Block{
+	original := &Block{
 		entries: []record.Record{
 			{
 				InternalKey: record.InternalKey{

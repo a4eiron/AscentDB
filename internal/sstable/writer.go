@@ -9,8 +9,9 @@ import (
 type TableWriter struct {
 	file      *os.File
 	blockSize int
-	block     Block
-	index     IndexBlock
+	block     *Block
+	index     *IndexBlock
+	filter    *Filter
 	offset    uint64
 }
 
@@ -22,15 +23,18 @@ func Create(path string, blockSize int) (*TableWriter, error) {
 	return &TableWriter{
 		file:      file,
 		blockSize: blockSize,
-		block:     Block{entries: make([]record.Record, 0)},
-		index:     IndexBlock{entries: make([]IndexEntry, 0)},
+		block:     &Block{entries: make([]record.Record, 0)},
+		index:     &IndexBlock{entries: make([]IndexEntry, 0)},
+		filter:    NewFilter(1000, 0.01),
 	}, nil
 }
 
 func (w *TableWriter) Add(r record.Record) error {
 	w.block.entries = append(w.block.entries, r)
 
-	if blockSize(w.block) >= w.blockSize {
+	w.filter.Add(r.UserKey)
+
+	if blockSize(*w.block) >= w.blockSize {
 		return w.flushBlock()
 	}
 
@@ -88,17 +92,28 @@ func (w *TableWriter) Close() error {
 	indexOffset := w.offset
 	indexBytes := encodeIndexBlock(w.index)
 
-	n, err := w.file.Write(indexBytes)
+	indexSize, err := w.file.Write(indexBytes)
 	if err != nil {
 		return err
 	}
 
-	w.offset += uint64(n)
+	w.offset += uint64(indexSize)
+
+	filterOffset := w.offset
+	filterBytes := EncodeFilter(w.filter)
+	filterSize, err := w.file.Write(filterBytes)
+	if err != nil {
+		return err
+	}
+
+	w.offset += uint64(filterSize)
 
 	footer := Footer{
-		IndexOffset: indexOffset,
-		IndexSize:   uint32(n),
-		Magic:       Magic,
+		IndexOffset:  indexOffset,
+		IndexSize:    uint32(indexSize),
+		FilterOffset: filterOffset,
+		FilterSize:   uint32(filterSize),
+		Magic:        Magic,
 	}
 
 	footerBytes := encodeFooter(footer)

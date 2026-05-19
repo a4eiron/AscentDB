@@ -8,12 +8,16 @@ import (
 
 const Magic uint64 = 0xdbb5a3c4f1e2d678
 
-const FooterSize int = 8 + 4 + 8
+const FooterSize int = 8 + 4 + 8 + 4 + 8
 
 type Footer struct {
 	IndexOffset uint64
 	IndexSize   uint32
-	Magic       uint64
+
+	FilterOffset uint64
+	FilterSize   uint32
+
+	Magic uint64
 }
 
 func encodeFooter(f Footer) []byte {
@@ -21,6 +25,8 @@ func encodeFooter(f Footer) []byte {
 
 	buf.WriteUint64(f.IndexOffset)
 	buf.WriteUint32(f.IndexSize)
+	buf.WriteUint64(f.FilterOffset)
+	buf.WriteUint32(f.FilterSize)
 	buf.WriteUint64(f.Magic)
 
 	return buf.Bytes()
@@ -40,6 +46,16 @@ func decodeFooter(b []byte) (*Footer, error) {
 		return nil, err
 	}
 
+	filterOffset, err := buf.ReadUint64()
+	if err != nil {
+		return nil, err
+	}
+
+	filterSize, err := buf.ReadUint32()
+	if err != nil {
+		return nil, err
+	}
+
 	magic, err := buf.ReadUint64()
 	if err != nil {
 		return nil, err
@@ -50,9 +66,11 @@ func decodeFooter(b []byte) (*Footer, error) {
 	}
 
 	f := &Footer{
-		IndexOffset: indexOffset,
-		IndexSize:   indexSize,
-		Magic:       magic,
+		IndexOffset:  indexOffset,
+		IndexSize:    indexSize,
+		FilterOffset: filterOffset,
+		FilterSize:   filterSize,
+		Magic:        magic,
 	}
 
 	return f, nil

@@ -15,14 +15,15 @@ func main() {
 	log.Println("At the start:", runtime.NumGoroutine())
 	log.SetFlags(log.Lshortfile)
 
-	num := 20000
+	num := 30000
+	deleted := 0
 
 	e, err := engine.New(&config.Options{
 		DataDir:         "./data",
 		BlockSize:       64 * 1024,
 		MemtableSize:    64 * 1024,
 		CrashRecovery:   true,
-		WALSyncInterval: 800 * time.Millisecond,
+		WALSyncInterval: 600 * time.Millisecond,
 	})
 
 	if err != nil {
@@ -35,9 +36,10 @@ func main() {
 	// 	value := fmt.Sprintf("value-%d", i)
 	// 	e.Put(key, []byte(value))
 	// }
-	//
-	// for i := range 1000 {
+
+	// for i := range num - 11137 {
 	// 	key := fmt.Sprintf("key-%d", i)
+	// 	deleted++
 	// 	e.Delete(key)
 	// }
 
@@ -53,6 +55,7 @@ func main() {
 	}
 
 	log.Println(counter)
+	log.Println("Deleted:", deleted)
 	log.Println("At the end:", runtime.NumGoroutine())
 
 }
