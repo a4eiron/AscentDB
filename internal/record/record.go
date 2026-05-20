@@ -3,7 +3,7 @@ package record
 import "github.com/a4eiron/ascentdb/internal/codec"
 
 type Record struct {
-	InternalKey
+	*InternalKey
 	Value []byte
 }
 
@@ -26,11 +26,8 @@ func (r *Record) ValueLen() uint32 {
 func EncodeRecord(r *Record) []byte {
 	payload := codec.NewBuffer(int(r.Size()))
 
-	payload.WriteUint32(r.KeyLen())
+	EncodeInternalKey(payload, r.InternalKey)
 	payload.WriteUint32(r.ValueLen())
-	payload.WriteBytes([]byte(r.UserKey))
-	payload.WriteUint64(uint64(r.SeqNum))
-	payload.WriteUint8(uint8(r.Type))
 	payload.WriteBytes(r.Value)
 
 	return payload.Bytes()
@@ -39,27 +36,11 @@ func EncodeRecord(r *Record) []byte {
 func DecodeRecord(data []byte) (*Record, error) {
 	buf := codec.NewBufferFromBytes(data)
 
-	keyLen, err := buf.ReadUint32()
+	internalKey, err := DecodeInternalKey(buf)
 	if err != nil {
 		return nil, err
 	}
-
 	valLen, err := buf.ReadUint32()
-	if err != nil {
-		return nil, err
-	}
-
-	keyBytes, err := buf.ReadBytes(int(keyLen))
-	if err != nil {
-		return nil, err
-	}
-
-	seqNum, err := buf.ReadUint64()
-	if err != nil {
-		return nil, err
-	}
-
-	t, err := buf.ReadUint8()
 	if err != nil {
 		return nil, err
 	}
@@ -70,12 +51,8 @@ func DecodeRecord(data []byte) (*Record, error) {
 	}
 
 	r := &Record{
-		InternalKey: InternalKey{
-			UserKey: string(keyBytes),
-			SeqNum:  seqNum,
-			Type:    IKType(t),
-		},
-		Value: valBytes,
+		InternalKey: internalKey,
+		Value:       valBytes,
 	}
 
 	return r, nil

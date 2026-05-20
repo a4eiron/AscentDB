@@ -21,7 +21,7 @@ type minHeap []*heapItem
 func (h minHeap) Len() int { return len(h) }
 
 func (h minHeap) Less(i, j int) bool {
-	cmp := h[i].record.Compare(h[j].record.InternalKey)
+	cmp := h[i].record.Compare(*h[j].record.InternalKey)
 	return cmp < 0
 }
 

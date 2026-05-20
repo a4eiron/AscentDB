@@ -12,7 +12,7 @@ func TestBlockEncodeDecode(t *testing.T) {
 	original := &Block{
 		entries: []record.Record{
 			{
-				InternalKey: record.InternalKey{
+				InternalKey: &record.InternalKey{
 					UserKey: "key-1",
 					SeqNum:  1,
 					Type:    record.TypePut,
@@ -20,7 +20,7 @@ func TestBlockEncodeDecode(t *testing.T) {
 				Value: []byte("val-1"),
 			},
 			{
-				InternalKey: record.InternalKey{
+				InternalKey: &record.InternalKey{
 					UserKey: "key-1",
 					SeqNum:  2,
 					Type:    record.TypeDel,
@@ -28,7 +28,7 @@ func TestBlockEncodeDecode(t *testing.T) {
 				Value: nil,
 			},
 			{
-				InternalKey: record.InternalKey{
+				InternalKey: &record.InternalKey{
 					UserKey: "key-2",
 					SeqNum:  3,
 					Type:    record.TypePut,

@@ -29,6 +29,9 @@ func (e *Engine) rotate() (*flushTask, error) {
 	oldWal := e.wal
 
 	// make them immutable
+	if e.immt != nil {
+		log.Fatal("rotating while immutable memtable exists")
+	}
 	e.immt = mt
 	e.imwal = oldWal
 
@@ -94,7 +97,7 @@ func (e *Engine) flush(task *flushTask) error {
 		lastKey = key
 
 		if err := task.writer.Add(record.Record{
-			InternalKey: key,
+			InternalKey: &key,
 			Value:       value,
 		}); err != nil {
 			return fmt.Errorf("failed to write to add to sstable: %w", err)

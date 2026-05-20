@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"sync"
 	"sync/atomic"
 
@@ -40,7 +41,7 @@ type Engine struct {
 	seqNum  uint64 // for every put/delete
 	fileNum uint64 // sstable file sequence
 
-	mu sync.Mutex
+	mu sync.RWMutex
 }
 
 func New(opts *config.Options) (*Engine, error) {
@@ -101,67 +102,25 @@ func New(opts *config.Options) (*Engine, error) {
 }
 
 func (e *Engine) Put(key string, value []byte) {
-
-	// create a new record
-	r := &record.Record{
-		InternalKey: record.InternalKey{
-			UserKey: key,
-			Type:    record.TypePut,
-			SeqNum:  atomic.AddUint64(&e.seqNum, 1),
-		},
-		Value: value,
-	}
-
-	e.mu.Lock()
-
-	// first - append to WAL if CrashRecovery is enabled
-	if e.opts.CrashRecovery {
-		if err := e.wal.Append(r); err != nil {
-			log.Fatal("wal:", err)
-		}
-	}
-
-	// second - insert into the memtable
-	e.mt.Put(r)
-
-	// third - check if the memtable is full, add a new flush task
-	var task *flushTask
-	if e.mt.IsFull() {
-		var err error
-		task, err = e.rotate()
-		if err != nil {
-			log.Println(err)
-		}
-	}
-	e.mu.Unlock()
-
-	if task != nil {
-		e.flushWg.Add(1)
-		e.flushChan <- task
-	}
+	e.write(key, value, record.TypePut)
 }
 
 func (e *Engine) Get(key string) ([]byte, bool) {
-
-	// create lookup key for searching in SSTs
 	lookupKey := record.InternalKey{
 		UserKey: key,
 		SeqNum:  math.MaxUint64,
 	}
 
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 
-	// first - check active memtable
 	if val, found, deleted := e.mt.Get(key); found {
 		if deleted {
 			return nil, false
 		}
-
 		return val, true
 	}
 
-	// second - if not present in the active memtable, check the immutable memtable
 	if e.immt != nil {
 		if val, found, deleted := e.immt.Get(key); found {
 			if deleted {
@@ -171,31 +130,48 @@ func (e *Engine) Get(key string) ([]byte, bool) {
 		}
 	}
 
-	// third - search in SSTs, starting from the newest in L0
 	var best *record.Record
+
+	checkTable := func(t *meta.TableMeta) {
+		reader, err := e.getReader(t)
+		if err != nil {
+			return
+		}
+
+		rec, ok, err := reader.Get(lookupKey)
+		if err != nil || !ok {
+			return
+		}
+
+		if best == nil || rec.SeqNum > best.SeqNum {
+			best = rec
+		}
+	}
 
 	for level := range e.vs.Current.Levels {
 		tables := e.vs.Current.Levels[level]
-
-		for i := len(tables) - 1; i >= 0; i-- {
-			t := tables[i]
-			if key < t.MinKey.UserKey || key > t.MaxKey.UserKey {
+		if level == 0 {
+			for i := len(tables) - 1; i >= 0; i-- {
+				t := tables[i]
+				log.Println("Searching file:", t.FileNum)
+				if key < t.MinKey.UserKey || key > t.MaxKey.UserKey {
+					continue
+				}
+				checkTable(t)
+			}
+		} else {
+			if len(tables) == 0 {
 				continue
 			}
 
-			reader, err := e.getReader(t)
-			if err != nil {
+			idx := sort.Search(len(tables), func(i int) bool {
+				return tables[i].MaxKey.Compare(lookupKey) >= 0
+			})
+
+			if idx >= len(tables) {
 				continue
 			}
-
-			rec, ok, err := reader.Get(lookupKey)
-			if err != nil || !ok {
-				continue
-			}
-
-			if best == nil || rec.SeqNum > best.SeqNum {
-				best = rec
-			}
+			checkTable(tables[idx])
 		}
 
 	}
@@ -211,38 +187,7 @@ func (e *Engine) Get(key string) ([]byte, bool) {
 }
 
 func (e *Engine) Delete(key string) {
-	r := &record.Record{
-		InternalKey: record.InternalKey{
-			UserKey: key,
-			Type:    record.TypeDel,
-			SeqNum:  atomic.AddUint64(&e.seqNum, 1),
-		},
-		Value: nil,
-	}
-
-	e.mu.Lock()
-
-	if e.opts.CrashRecovery {
-		if err := e.wal.Append(r); err != nil {
-			log.Fatal("wal:", err)
-		}
-	}
-	e.mt.Put(r)
-
-	var task *flushTask
-	if e.mt.IsFull() {
-		var err error
-		task, err = e.rotate()
-		if err != nil {
-			log.Println(err)
-		}
-	}
-	e.mu.Unlock()
-
-	if task != nil {
-		e.flushWg.Add(1)
-		e.flushChan <- task
-	}
+	e.write(key, nil, record.TypeDel)
 }
 
 func (e *Engine) Sync() error {
@@ -301,6 +246,43 @@ func (e *Engine) Close() error {
 		return e.wal.Close()
 	}
 	return nil
+}
+
+func (e *Engine) write(key string, value []byte, typ record.IKType) {
+	r := &record.Record{
+		InternalKey: &record.InternalKey{
+			UserKey: key,
+			Type:    typ,
+			SeqNum:  atomic.AddUint64(&e.seqNum, 1),
+		},
+		Value: value,
+	}
+
+	e.mu.Lock()
+
+	if e.opts.CrashRecovery {
+		if err := e.wal.Append(r); err != nil {
+			log.Fatal("wal", err)
+		}
+	}
+
+	e.mt.Put(r)
+
+	var task *flushTask
+	if e.mt.IsFull() {
+		var err error
+		task, err = e.rotate()
+		if err != nil {
+			log.Println(err)
+		}
+	}
+	e.mu.Unlock()
+
+	if task != nil {
+		e.flushWg.Add(1)
+		e.flushChan <- task
+	}
+
 }
 
 func (e *Engine) getReader(t *meta.TableMeta) (*sstable.TableReader, error) {

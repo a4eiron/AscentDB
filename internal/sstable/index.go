@@ -10,7 +10,7 @@ type IndexBlock struct {
 }
 
 type IndexEntry struct {
-	SeparatorKey record.InternalKey
+	SeparatorKey *record.InternalKey
 	BlockOffset  uint64
 	BlockSize    uint32
 }
@@ -74,21 +74,13 @@ func decodeIndexBlock(b []byte) (*IndexBlock, error) {
 }
 
 func encodeIndexEntry(e *IndexEntry) []byte {
-
-	var size int
-
-	size += int(e.SeparatorKey.KeySize())
-	size += 8
-	size += 4
+	size := int(e.SeparatorKey.KeySize()) + 8 + 4
 
 	buf := codec.NewBuffer(size)
 
 	buf.WriteUint64(e.BlockOffset)
 	buf.WriteUint32(e.BlockSize)
-	buf.WriteUint32(uint32(len(e.SeparatorKey.UserKey)))
-	buf.WriteBytes([]byte(e.SeparatorKey.UserKey))
-	buf.WriteUint64(e.SeparatorKey.SeqNum)
-	buf.WriteUint8(uint8(e.SeparatorKey.Type))
+	record.EncodeInternalKey(buf, e.SeparatorKey)
 
 	return buf.Bytes()
 }
@@ -107,34 +99,15 @@ func decodeIndexEntry(b []byte) (*IndexEntry, error) {
 		return nil, err
 	}
 
-	userKeyLen, err := buf.ReadUint32()
-	if err != nil {
-		return nil, err
-	}
-
-	userKeyBytes, err := buf.ReadBytes(int(userKeyLen))
-	if err != nil {
-		return nil, err
-	}
-
-	seqNum, err := buf.ReadUint64()
-	if err != nil {
-		return nil, err
-	}
-
-	t, err := buf.ReadUint8()
+	separatorKey, err := record.DecodeInternalKey(buf)
 	if err != nil {
 		return nil, err
 	}
 
 	entry := &IndexEntry{
-		BlockOffset: blockOffset,
-		BlockSize:   blockSize,
-		SeparatorKey: record.InternalKey{
-			UserKey: string(userKeyBytes),
-			SeqNum:  seqNum,
-			Type:    record.IKType(t),
-		},
+		BlockOffset:  blockOffset,
+		BlockSize:    blockSize,
+		SeparatorKey: separatorKey,
 	}
 
 	return entry, nil

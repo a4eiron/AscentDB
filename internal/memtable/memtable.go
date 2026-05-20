@@ -1,7 +1,6 @@
 package memtable
 
 import (
-	"log"
 	"sync"
 
 	"github.com/a4eiron/ascentdb/internal/record"
@@ -29,11 +28,8 @@ func (m *Memtable) Put(r *record.Record) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.list.insert(r.InternalKey, r.Value)
+	m.list.insert(*r.InternalKey, r.Value)
 	m.size += uint64(r.Size())
-
-	log.Println("Memtable - size:", m.size, "maxSize:", m.maxSize)
-
 	return nil
 }
 

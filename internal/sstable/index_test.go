@@ -9,7 +9,7 @@ import (
 func TestIndexEntryEncodeDecode(t *testing.T) {
 
 	original := &IndexEntry{
-		SeparatorKey: record.InternalKey{
+		SeparatorKey: &record.InternalKey{
 			UserKey: "key-42",
 			SeqNum:  99,
 			Type:    record.TypePut,
@@ -71,7 +71,7 @@ func TestIndexBlockEncodeDecode(t *testing.T) {
 	original := &IndexBlock{
 		entries: []IndexEntry{
 			{
-				SeparatorKey: record.InternalKey{
+				SeparatorKey: &record.InternalKey{
 					UserKey: "key-1",
 					SeqNum:  1,
 					Type:    record.TypePut,
@@ -80,7 +80,7 @@ func TestIndexBlockEncodeDecode(t *testing.T) {
 				BlockSize:   4096,
 			},
 			{
-				SeparatorKey: record.InternalKey{
+				SeparatorKey: &record.InternalKey{
 					UserKey: "key-5",
 					SeqNum:  7,
 					Type:    record.TypeDel,
@@ -89,7 +89,7 @@ func TestIndexBlockEncodeDecode(t *testing.T) {
 				BlockSize:   2048,
 			},
 			{
-				SeparatorKey: record.InternalKey{
+				SeparatorKey: &record.InternalKey{
 					UserKey: "key-9",
 					SeqNum:  10,
 					Type:    record.TypePut,

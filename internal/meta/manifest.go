@@ -103,16 +103,10 @@ func encodeTableMeta(m *TableMeta) []byte {
 	buf.WriteUint32(m.Level)
 
 	buf.WriteUint32(minKeySize)
-	buf.WriteUint32(uint32(len(m.MinKey.UserKey)))
-	buf.WriteBytes([]byte(m.MinKey.UserKey))
-	buf.WriteUint64(m.MinKey.SeqNum)
-	buf.WriteUint8(uint8(m.MinKey.Type))
+	record.EncodeInternalKey(buf, &m.MinKey)
 
 	buf.WriteUint32(maxKeySize)
-	buf.WriteUint32(uint32(len(m.MaxKey.UserKey)))
-	buf.WriteBytes([]byte(m.MaxKey.UserKey))
-	buf.WriteUint64(m.MaxKey.SeqNum)
-	buf.WriteUint8(uint8(m.MaxKey.Type))
+	record.EncodeInternalKey(buf, &m.MaxKey)
 
 	return buf.Bytes()
 }
@@ -145,22 +139,7 @@ func decodeTableMeta(b []byte) (*TableMeta, error) {
 		return nil, err
 	}
 
-	minUserKeySize, err := buf.ReadUint32()
-	if err != nil {
-		return nil, err
-	}
-
-	minUserKeyBytes, err := buf.ReadBytes(int(minUserKeySize))
-	if err != nil {
-		return nil, err
-	}
-
-	minSeqNum, err := buf.ReadUint64()
-	if err != nil {
-		return nil, err
-	}
-
-	minKeyType, err := buf.ReadUint8()
+	minKey, err := record.DecodeInternalKey(buf)
 	if err != nil {
 		return nil, err
 	}
@@ -171,22 +150,7 @@ func decodeTableMeta(b []byte) (*TableMeta, error) {
 		return nil, err
 	}
 
-	maxUserKeySize, err := buf.ReadUint32()
-	if err != nil {
-		return nil, err
-	}
-
-	maxUserKeyBytes, err := buf.ReadBytes(int(maxUserKeySize))
-	if err != nil {
-		return nil, err
-	}
-
-	maxSeqNum, err := buf.ReadUint64()
-	if err != nil {
-		return nil, err
-	}
-
-	maxKeyType, err := buf.ReadUint8()
+	maxKey, err := record.DecodeInternalKey(buf)
 	if err != nil {
 		return nil, err
 	}
@@ -195,18 +159,8 @@ func decodeTableMeta(b []byte) (*TableMeta, error) {
 		FileNum:  fileNum,
 		FileSize: fileSize,
 		Level:    level,
-
-		MinKey: record.InternalKey{
-			UserKey: string(minUserKeyBytes),
-			SeqNum:  minSeqNum,
-			Type:    record.IKType(minKeyType),
-		},
-
-		MaxKey: record.InternalKey{
-			UserKey: string(maxUserKeyBytes),
-			SeqNum:  maxSeqNum,
-			Type:    record.IKType(maxKeyType),
-		},
+		MinKey:   *minKey,
+		MaxKey:   *maxKey,
 	}
 
 	log.Println("minkeysize:", minKeySize, t.MinKey.KeySize())

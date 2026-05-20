@@ -34,7 +34,7 @@ func (iter *Iterator) Next() {
 	iter.loadBlock()
 }
 
-func (iter *Iterator) Key() record.InternalKey {
+func (iter *Iterator) Key() *record.InternalKey {
 	return iter.block.entries[iter.entryIndex].InternalKey
 }
 

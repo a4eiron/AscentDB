@@ -60,7 +60,6 @@ func (w *TableWriter) flushBlock() error {
 	}
 
 	encodedBlock := encodeBlock(w.block)
-
 	offset := w.offset
 
 	n, err := w.file.Write(encodedBlock)

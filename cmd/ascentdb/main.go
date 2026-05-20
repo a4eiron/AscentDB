@@ -16,7 +16,6 @@ func main() {
 	log.SetFlags(log.Lshortfile)
 
 	num := 30000
-	deleted := 0
 
 	e, err := engine.New(&config.Options{
 		DataDir:         "./data",
@@ -31,13 +30,14 @@ func main() {
 	}
 	defer e.Close()
 
-	// for i := range num {
-	// 	key := fmt.Sprintf("key-%d", i)
-	// 	value := fmt.Sprintf("value-%d", i)
-	// 	e.Put(key, []byte(value))
-	// }
+	for i := range num {
+		key := fmt.Sprintf("key-%d", i)
+		value := fmt.Sprintf("value-%d", i)
+		e.Put(key, []byte(value))
+	}
 
-	// for i := range num - 11137 {
+	deleted := 0
+	// for i := range 422 {
 	// 	key := fmt.Sprintf("key-%d", i)
 	// 	deleted++
 	// 	e.Delete(key)
@@ -54,8 +54,5 @@ func main() {
 		}
 	}
 
-	log.Println(counter)
-	log.Println("Deleted:", deleted)
-	log.Println("At the end:", runtime.NumGoroutine())
-
+	log.Println("counter:", counter, "deleted:", deleted)
 }

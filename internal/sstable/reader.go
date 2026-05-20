@@ -26,9 +26,7 @@ func Open(path string) (*TableReader, error) {
 		return nil, err
 	}
 
-	footerBytes := make([]byte, FooterSize)
-
-	_, err = file.ReadAt(footerBytes, stat.Size()-int64(FooterSize))
+	footerBytes, err := readAt(file, stat.Size()-int64(FooterSize), uint32(FooterSize))
 	if err != nil {
 		return nil, err
 	}
@@ -38,8 +36,7 @@ func Open(path string) (*TableReader, error) {
 		return nil, err
 	}
 
-	indexBytes := make([]byte, footer.IndexSize)
-	_, err = file.ReadAt(indexBytes, int64(footer.IndexOffset))
+	indexBytes, err := readAt(file, int64(footer.IndexOffset), footer.IndexSize)
 	if err != nil {
 		return nil, err
 	}
@@ -49,8 +46,7 @@ func Open(path string) (*TableReader, error) {
 		return nil, err
 	}
 
-	filterBytes := make([]byte, footer.FilterSize)
-	_, err = file.ReadAt(filterBytes, int64(footer.FilterOffset))
+	filterBytes, err := readAt(file, int64(footer.FilterOffset), footer.FilterSize)
 	if err != nil {
 		return nil, err
 	}
@@ -119,4 +115,10 @@ func (r *TableReader) findBlock(key record.InternalKey) *IndexEntry {
 		return nil
 	}
 	return &r.index.entries[idx]
+}
+
+func readAt(file *os.File, offset int64, size uint32) ([]byte, error) {
+	b := make([]byte, size)
+	_, err := file.ReadAt(b, offset)
+	return b, err
 }
