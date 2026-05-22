@@ -23,6 +23,8 @@ func (e *Engine) recover() error {
 		return err
 	}
 
-	atomic.StoreUint64(&e.seqNum, maxSeq)
+	if maxSeq > e.seqNum {
+		atomic.StoreUint64(&e.seqNum, maxSeq)
+	}
 	return nil
 }
