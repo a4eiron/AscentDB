@@ -1,7 +1,6 @@
 package memtable
 
 import (
-	"math"
 	"math/rand"
 
 	"github.com/a4eiron/ascentdb/internal/record"
@@ -65,13 +64,7 @@ func (sl *Skiplist) insert(key record.InternalKey, value []byte) {
 
 }
 
-func (sl *Skiplist) search(userKey string) ([]byte, bool, bool) {
-
-	lookupKey := record.InternalKey{
-		UserKey: userKey,
-		SeqNum:  math.MaxUint64,
-	}
-
+func (sl *Skiplist) search(userKey string, lookupKey record.InternalKey) ([]byte, bool, bool) {
 	curr := sl.head
 	for i := sl.level - 1; i >= 0; i-- {
 		for curr.forward[i] != nil && sl.compare(curr.forward[i].key, lookupKey) < 0 {
@@ -85,10 +78,8 @@ func (sl *Skiplist) search(userKey string) ([]byte, bool, bool) {
 		if curr.key.Type == record.TypeDel {
 			return nil, true, true
 		}
-
 		return curr.value, true, false
 	}
-
 	return nil, false, false
 }
 
@@ -97,6 +88,5 @@ func (sl *Skiplist) randomLevel() int {
 	for rand.Float64() < P && lvl < sl.maxLevel {
 		lvl++
 	}
-
 	return lvl
 }

@@ -2,7 +2,6 @@ package meta
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 
@@ -134,7 +133,7 @@ func decodeTableMeta(b []byte) (*TableMeta, error) {
 	}
 
 	// --------
-	minKeySize, err := buf.ReadUint32()
+	_, err = buf.ReadUint32()
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +144,7 @@ func decodeTableMeta(b []byte) (*TableMeta, error) {
 	}
 
 	// --------
-	maxKeySize, err := buf.ReadUint32()
+	_, err = buf.ReadUint32()
 	if err != nil {
 		return nil, err
 	}
@@ -162,9 +161,6 @@ func decodeTableMeta(b []byte) (*TableMeta, error) {
 		MinKey:   *minKey,
 		MaxKey:   *maxKey,
 	}
-
-	log.Println("minkeysize:", minKeySize, t.MinKey.KeySize())
-	log.Println("maxkeysize:", maxKeySize, t.MaxKey.KeySize())
 
 	return t, nil
 }

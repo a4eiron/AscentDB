@@ -33,6 +33,7 @@ type VersionEdit struct {
 }
 
 func (vs *VersionSet) LogAndApply(edit *VersionEdit) error {
+
 	vs.mu.Lock()
 	defer vs.mu.Unlock()
 
@@ -61,6 +62,12 @@ func (vs *VersionSet) NextFileNum() uint64 {
 	vs.nextFileNum++
 
 	return n
+}
+
+func (vs *VersionSet) LastSequenceNum() uint64 {
+	vs.mu.Lock()
+	defer vs.mu.Unlock()
+	return vs.lastSeqNum
 }
 
 func (vs *VersionSet) LogNumber() uint64 {

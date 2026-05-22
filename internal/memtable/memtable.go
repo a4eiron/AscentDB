@@ -12,7 +12,7 @@ type Memtable struct {
 	size    uint64
 	maxSize uint64
 
-	mu sync.Mutex
+	mu sync.RWMutex
 }
 
 func New(maxSize uint64) *Memtable {
@@ -33,10 +33,10 @@ func (m *Memtable) Put(r *record.Record) error {
 	return nil
 }
 
-func (m *Memtable) Get(userKey string) ([]byte, bool, bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.list.search(userKey)
+func (m *Memtable) Get(userKey string, lookupKey record.InternalKey) ([]byte, bool, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.list.search(userKey, lookupKey)
 }
 
 func (m *Memtable) Size() uint64 {
@@ -49,17 +49,7 @@ func (m *Memtable) IsFull() bool {
 	return m.size >= m.maxSize
 }
 
-// func (m *Memtable) PrintAll() {
-// 	iter := m.list.Iterator()
-// 	for iter.Valid() {
-// 		k := iter.Key()
-// 		v := iter.Value()
-// 		fmt.Printf("Key: %s, Seq: %d, Val: %s\n", k.UserKey, k.SeqNum, string(v))
-// 		iter.Next()
-// 	}
-// }
-
-func (m *Memtable) Iterator() *Iterator {
+func (m *Memtable) Iterator() *MemtableIterator {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.list.Iterator()

@@ -14,8 +14,7 @@ const (
 	maxL0Files      = 4
 	maxBytesBase    = 10 * 1024 * 1024 // L1 cap
 	levelMultiplier = 10               // each level is 10x larger
-
-	maxSSTableSize = 2 * 1024 * 1024 // 2 MiB
+	maxSSTableSize  = 2 * 1024 * 1024  // 2 MiB
 )
 
 func (e *Engine) scheduleCompaction() {
@@ -27,23 +26,17 @@ func (e *Engine) scheduleCompaction() {
 	if len(e.vs.Current.Levels[0]) >= maxL0Files {
 		inputs := e.pickCompactionInputs(0)
 		outFileNum := e.vs.NextFileNum()
-		go func() {
-			e.compactLevel(0, inputs, outFileNum)
-		}()
+		go e.compactLevel(0, inputs, outFileNum)
 		return
 	}
 
 	for level := 1; level < len(e.vs.Current.Levels)-1; level++ {
-
 		if e.levelSize(level) > e.levelCapacity(level) {
 			inputs := e.pickCompactionInputs(level)
 			outFileNum := e.vs.NextFileNum()
-			go func() {
-				e.compactLevel(level, inputs, outFileNum)
-			}()
+			go e.compactLevel(level, inputs, outFileNum)
 			return
 		}
-
 	}
 
 	e.isCompacting.Store(false)
@@ -68,15 +61,19 @@ func (e *Engine) compactLevel(level int, inputs []*meta.TableMeta, outFileNum ui
 
 	// open iterators for all input files
 	all := append(inputs, overlapping...)
-	iters := make([]*sstable.Iterator, 0, len(all))
+	iters := make([]*sstable.SSTableIterator, 0, len(all))
 
+	readers := make([]*sstable.TableReader, 0, len(all))
 	for _, t := range all {
 		path := e.tablePath(int(t.Level), t.FileNum)
 		reader, err := sstable.Open(path)
 		if err != nil {
-			log.Println("compaction - open:", err)
+			for _, r := range readers {
+				r.Close()
+			}
 			return
 		}
+		readers = append(readers, reader)
 		iters = append(iters, reader.Iterator())
 	}
 
@@ -85,7 +82,14 @@ func (e *Engine) compactLevel(level int, inputs []*meta.TableMeta, outFileNum ui
 	outTables, err := e.writeCompactionOutput(outFileNum, nextLevel, iters, isBottomLevel)
 	if err != nil {
 		log.Println(err)
+		for _, r := range readers {
+			r.Close()
+		}
 		return
+	}
+
+	for _, r := range readers {
+		r.Close()
 	}
 
 	var deleted []*meta.DeletedTableMeta
@@ -109,22 +113,25 @@ func (e *Engine) compactLevel(level int, inputs []*meta.TableMeta, outFileNum ui
 	}
 
 	for _, t := range all {
-		delete(e.tableCache, t.FileNum)
+		if r, ok := e.tableCache[t.FileNum]; ok {
+			r.Close()
+			delete(e.tableCache, t.FileNum)
+		}
 		os.Remove(e.tablePath(int(t.Level), t.FileNum))
 	}
-	shouldCompact := len(e.vs.Current.Levels[0]) >= maxL0Files
+	// shouldCompact := len(e.vs.Current.Levels[0]) >= maxL0Files
 	e.mu.Unlock()
 	e.isCompacting.Store(false)
-	if shouldCompact {
-		e.scheduleCompaction()
-	}
+	// if shouldCompact {
+	e.scheduleCompaction()
+	// }
 }
 
 func (e *Engine) writeCompactionOutput(
 	fileNum uint64,
 	level int,
-	iters []*sstable.Iterator,
-	isBottomLevel bool,
+	iters []*sstable.SSTableIterator,
+	_ bool,
 ) ([]*meta.TableMeta, error) {
 
 	merger := compaction.NewMergeIterator(iters)
@@ -169,18 +176,21 @@ func (e *Engine) writeCompactionOutput(
 		return nil, err
 	}
 
+	oldestSnap := e.snapshots.oldest()
 	for merger.Valid() {
 		rec := merger.Record()
 
 		// skip older veresions of the same user key
 		if rec.UserKey == lastUserKey {
-			merger.Next()
-			continue
+			if rec.SeqNum < oldestSnap {
+				merger.Next()
+				continue
+			}
 		}
 		lastUserKey = rec.UserKey
 
 		// drop tombstones at the bottom level
-		if isBottomLevel && rec.Type == record.TypeDel {
+		if rec.Type == record.TypeDel && rec.SeqNum < oldestSnap {
 			merger.Next()
 			continue
 		}

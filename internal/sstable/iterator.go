@@ -4,15 +4,15 @@ import (
 	"github.com/a4eiron/ascentdb/internal/record"
 )
 
-type Iterator struct {
+type SSTableIterator struct {
 	reader     *TableReader
 	blockIndex int
 	block      *Block
 	entryIndex int
 }
 
-func (r *TableReader) Iterator() *Iterator {
-	iter := &Iterator{
+func (r *TableReader) Iterator() *SSTableIterator {
+	iter := &SSTableIterator{
 		reader:     r,
 		blockIndex: 0,
 	}
@@ -20,11 +20,11 @@ func (r *TableReader) Iterator() *Iterator {
 	return iter
 }
 
-func (iter *Iterator) Valid() bool {
+func (iter *SSTableIterator) Valid() bool {
 	return iter.block != nil && iter.entryIndex < len(iter.block.entries)
 }
 
-func (iter *Iterator) Next() {
+func (iter *SSTableIterator) Next() {
 	if iter.entryIndex+1 < len(iter.block.entries) {
 		iter.entryIndex++
 		return
@@ -34,15 +34,28 @@ func (iter *Iterator) Next() {
 	iter.loadBlock()
 }
 
-func (iter *Iterator) Key() *record.InternalKey {
+func (iter *SSTableIterator) Key() *record.InternalKey {
 	return iter.block.entries[iter.entryIndex].InternalKey
 }
 
-func (iter *Iterator) Value() []byte {
+func (iter *SSTableIterator) Value() []byte {
 	return iter.block.entries[iter.entryIndex].Value
 }
 
-func (iter *Iterator) loadBlock() {
+func (iter *SSTableIterator) Seek(target record.InternalKey) {
+	idx := iter.reader.findBlockIndex(target)
+	if idx >= len(iter.reader.index.entries) {
+		iter.block = nil
+		return
+	}
+	iter.blockIndex = idx
+	iter.loadBlock()
+	for iter.Valid() && iter.Key().Compare(target) < 0 {
+		iter.entryIndex++
+	}
+}
+
+func (iter *SSTableIterator) loadBlock() {
 	if iter.blockIndex >= len(iter.reader.index.entries) {
 		iter.block = nil
 		return

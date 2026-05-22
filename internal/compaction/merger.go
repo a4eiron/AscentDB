@@ -12,7 +12,7 @@ type MergeIterator struct {
 }
 
 type heapItem struct {
-	iter   *sstable.Iterator
+	iter   *sstable.SSTableIterator
 	record *record.Record
 }
 
@@ -42,7 +42,7 @@ func (h *minHeap) Pop() any {
 	return item
 }
 
-func NewMergeIterator(iters []*sstable.Iterator) *MergeIterator {
+func NewMergeIterator(iters []*sstable.SSTableIterator) *MergeIterator {
 	h := &minHeap{}
 	heap.Init(h)
 

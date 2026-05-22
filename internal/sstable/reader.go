@@ -1,7 +1,6 @@
 package sstable
 
 import (
-	"log"
 	"os"
 	"sort"
 
@@ -68,9 +67,7 @@ func Open(path string) (*TableReader, error) {
 
 func (r *TableReader) Get(key record.InternalKey) (*record.Record, bool, error) {
 
-	log.Println("Check no no")
 	if !r.filter.Contains(key.UserKey) {
-		log.Println("no no no")
 		return nil, false, nil
 	}
 	entry := r.findBlock(key)
@@ -96,6 +93,10 @@ func (r *TableReader) Get(key record.InternalKey) (*record.Record, bool, error) 
 	return &rec, true, nil
 }
 
+func (r *TableReader) Close() error {
+	return r.file.Close()
+}
+
 func (r *TableReader) readBlock(offset uint64, size uint32) (*Block, error) {
 	blockBytes := make([]byte, size)
 	_, err := r.file.ReadAt(blockBytes, int64(offset))
@@ -115,6 +116,12 @@ func (r *TableReader) findBlock(key record.InternalKey) *IndexEntry {
 		return nil
 	}
 	return &r.index.entries[idx]
+}
+
+func (r *TableReader) findBlockIndex(key record.InternalKey) int {
+	return sort.Search(len(r.index.entries), func(i int) bool {
+		return r.index.entries[i].SeparatorKey.Compare(key) >= 0
+	})
 }
 
 func readAt(file *os.File, offset int64, size uint32) ([]byte, error) {

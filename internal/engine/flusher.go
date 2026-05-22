@@ -29,16 +29,13 @@ func (e *Engine) rotate() (*flushTask, error) {
 	oldWal := e.wal
 
 	// make them immutable
-	if e.immt != nil {
-		log.Fatal("rotating while immutable memtable exists")
-	}
 	e.immt = mt
 	e.imwal = oldWal
 
 	// crate  new memtable and wal
 	fileNum := e.vs.NextFileNum()
 
-	newWal, err := wal.Open(filepath.Join(e.opts.DataDir, "wal", fmt.Sprintf("wal-%06d", fileNum)), e.opts.WALSyncInterval)
+	newWal, err := wal.Open(e.walPath(fileNum), e.opts.WALSyncInterval)
 	if err != nil {
 		log.Println("failed to create new WAL", err)
 		return nil, err
@@ -84,7 +81,7 @@ func (e *Engine) runFlusher() {
 func (e *Engine) flush(task *flushTask) error {
 
 	first := true
-	var firstKey, lastKey record.InternalKey
+	var firstKey, lastKey *record.InternalKey
 
 	for iter := task.mt.Iterator(); iter.Valid(); iter.Next() {
 		key := iter.Key()
@@ -97,7 +94,7 @@ func (e *Engine) flush(task *flushTask) error {
 		lastKey = key
 
 		if err := task.writer.Add(record.Record{
-			InternalKey: &key,
+			InternalKey: key,
 			Value:       value,
 		}); err != nil {
 			return fmt.Errorf("failed to write to add to sstable: %w", err)
@@ -116,9 +113,12 @@ func (e *Engine) flush(task *flushTask) error {
 		return fmt.Errorf("failed to close sstable: %w", err)
 	}
 
-	e.mu.Lock()
 	nextFileNum := e.vs.NextFileNum()
-	e.mu.Unlock()
+
+	if first {
+		task.writer.Close()
+		return nil
+	}
 
 	edit := &meta.VersionEdit{
 		NextFileNum:  &nextFileNum,
@@ -128,14 +128,13 @@ func (e *Engine) flush(task *flushTask) error {
 				FileNum:  fileNum,
 				FileSize: uint64(fileSize),
 				Level:    0,
-				MinKey:   firstKey,
-				MaxKey:   lastKey,
+				MinKey:   *firstKey,
+				MaxKey:   *lastKey,
 			},
 		},
 	}
 
 	e.mu.Lock()
-
 	if err := e.vs.LogAndApply(edit); err != nil {
 		log.Println(err)
 	}

@@ -6,11 +6,11 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"sync"
 	"sync/atomic"
 
+	"github.com/a4eiron/ascentdb/internal"
 	"github.com/a4eiron/ascentdb/internal/config"
 	"github.com/a4eiron/ascentdb/internal/memtable"
 	"github.com/a4eiron/ascentdb/internal/meta"
@@ -25,8 +25,9 @@ type Engine struct {
 	wal   *wal.WAL
 	imwal *wal.WAL
 
-	mt   *memtable.Memtable
-	immt *memtable.Memtable
+	mt        *memtable.Memtable
+	immt      *memtable.Memtable
+	immtQueue []*memtable.Memtable
 
 	tableCache map[uint64]*sstable.TableReader
 
@@ -38,8 +39,9 @@ type Engine struct {
 	isCompacting   atomic.Bool
 	compactPointer [7]string
 
-	seqNum  uint64 // for every put/delete
-	fileNum uint64 // sstable file sequence
+	seqNum uint64 // for every put/delete
+
+	snapshots SnapshotList
 
 	mu sync.RWMutex
 }
@@ -74,13 +76,11 @@ func New(opts *config.Options) (*Engine, error) {
 	}
 
 	e.vs = vs
-	e.fileNum = e.vs.NextFileNum()
+	atomic.StoreUint64(&e.seqNum, e.vs.LastSequenceNum())
 	e.tableCache = make(map[uint64]*sstable.TableReader)
 
 	if e.opts.CrashRecovery {
-		walPath := filepath.Join(opts.DataDir, "wal", fmt.Sprintf("wal-%06d", e.vs.LogNumber()))
-		log.Println("Opening wal", walPath)
-
+		walPath := filepath.Join(opts.DataDir, "wal", fmt.Sprintf("wal-%06d.log", e.vs.LogNumber()))
 		wal, err := wal.Open(walPath, e.opts.WALSyncInterval)
 		if err != nil {
 			log.Println(err)
@@ -96,8 +96,6 @@ func New(opts *config.Options) (*Engine, error) {
 
 	// background flusher
 	go e.runFlusher()
-
-	log.Println("launched flusher:", runtime.NumGoroutine())
 	return e, nil
 }
 
@@ -106,15 +104,23 @@ func (e *Engine) Put(key string, value []byte) {
 }
 
 func (e *Engine) Get(key string) ([]byte, bool) {
+	return e.getAt(key, math.MaxUint64)
+}
+
+func (e *Engine) Delete(key string) {
+	e.write(key, nil, record.TypeDel)
+}
+
+func (e *Engine) getAt(key string, seqNum uint64) ([]byte, bool) {
 	lookupKey := record.InternalKey{
 		UserKey: key,
-		SeqNum:  math.MaxUint64,
+		SeqNum:  seqNum,
 	}
 
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
-	if val, found, deleted := e.mt.Get(key); found {
+	if val, found, deleted := e.mt.Get(key, lookupKey); found {
 		if deleted {
 			return nil, false
 		}
@@ -122,7 +128,7 @@ func (e *Engine) Get(key string) ([]byte, bool) {
 	}
 
 	if e.immt != nil {
-		if val, found, deleted := e.immt.Get(key); found {
+		if val, found, deleted := e.immt.Get(key, lookupKey); found {
 			if deleted {
 				return nil, false
 			}
@@ -153,7 +159,7 @@ func (e *Engine) Get(key string) ([]byte, bool) {
 		if level == 0 {
 			for i := len(tables) - 1; i >= 0; i-- {
 				t := tables[i]
-				log.Println("Searching file:", t.FileNum)
+				// log.Println("Searching file:", t.FileNum)
 				if key < t.MinKey.UserKey || key > t.MaxKey.UserKey {
 					continue
 				}
@@ -186,8 +192,40 @@ func (e *Engine) Get(key string) ([]byte, bool) {
 	return nil, false
 }
 
-func (e *Engine) Delete(key string) {
-	e.write(key, nil, record.TypeDel)
+func (e *Engine) Scan(start, end string) *ScanIterator {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	var iters []internal.Iterator
+
+	mtIter := e.mt.Iterator()
+	mtIter.Seek(record.InternalKey{UserKey: start, SeqNum: math.MaxUint64})
+	iters = append(iters, mtIter)
+
+	if e.immt != nil {
+		immtIter := e.immt.Iterator()
+		immtIter.Seek(record.InternalKey{UserKey: start, SeqNum: math.MaxUint64})
+		iters = append(iters, immtIter)
+	}
+
+	for _, tables := range e.vs.Current.Levels {
+		for _, t := range tables {
+			if t.MaxKey.UserKey < start || t.MinKey.UserKey > end {
+				continue
+			}
+
+			reader, err := e.getReader(t)
+			if err != nil {
+				log.Fatalln(err)
+			}
+
+			iter := reader.Iterator()
+			iter.Seek(record.InternalKey{UserKey: start, SeqNum: math.MaxUint64})
+			iters = append(iters, iter)
+		}
+	}
+
+	return NewScanIterator(iters, end)
 }
 
 func (e *Engine) Sync() error {
@@ -223,7 +261,6 @@ func (e *Engine) Close() error {
 	var task *flushTask
 	e.mu.Lock()
 	if e.mt.Size() > 0 {
-		log.Println("FLUSHING BEFORE CLOSE")
 		var err error
 		task, err = e.rotate()
 		if err != nil {
@@ -242,6 +279,10 @@ func (e *Engine) Close() error {
 
 	close(e.flushChan)
 
+	for _, r := range e.tableCache {
+		r.Close()
+	}
+
 	if e.wal != nil {
 		return e.wal.Close()
 	}
@@ -249,11 +290,12 @@ func (e *Engine) Close() error {
 }
 
 func (e *Engine) write(key string, value []byte, typ record.IKType) {
+	seq := atomic.AddUint64(&e.seqNum, 1)
 	r := &record.Record{
 		InternalKey: &record.InternalKey{
 			UserKey: key,
 			Type:    typ,
-			SeqNum:  atomic.AddUint64(&e.seqNum, 1),
+			SeqNum:  seq,
 		},
 		Value: value,
 	}

@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"runtime"
 	"time"
 
 	"github.com/a4eiron/ascentdb/internal/config"
@@ -11,11 +10,7 @@ import (
 )
 
 func main() {
-
-	log.Println("At the start:", runtime.NumGoroutine())
 	log.SetFlags(log.Lshortfile)
-
-	num := 30000
 
 	e, err := engine.New(&config.Options{
 		DataDir:         "./data",
@@ -30,29 +25,51 @@ func main() {
 	}
 	defer e.Close()
 
-	for i := range num {
-		key := fmt.Sprintf("key-%d", i)
-		value := fmt.Sprintf("value-%d", i)
-		e.Put(key, []byte(value))
-	}
+	// putSomeStuff(e)
+	// getSomeStuff(e)
 
-	deleted := 0
-	// for i := range 422 {
-	// 	key := fmt.Sprintf("key-%d", i)
-	// 	deleted++
-	// 	e.Delete(key)
+	// iter := e.Scan(
+	// 	fmt.Sprintf("key-%020d", 13),
+	// 	fmt.Sprintf("key-%020d", 25),
+	// )
+
+	// for ; iter.Valid(); iter.Next() {
+	// 	fmt.Println(iter.Key(), iter.Valid())
 	// }
 
+	snap := e.NewSnapshot()
+
+	e.Put(
+		fmt.Sprintf("key-%020d", 4342),
+		fmt.Appendf(nil, "value-%020d-updated", 4342),
+	)
+
+	val, _ := snap.Get(fmt.Sprintf("key-%020d", 4342))
+	fmt.Println("snapshot val: ", string(val))
+	val, _ = e.Get(fmt.Sprintf("key-%020d", 4342))
+	fmt.Println("live val: ", string(val))
+
+}
+
+func putSomeStuff(e *engine.Engine) {
+	for i := 0; i < 300000; i++ {
+		key := fmt.Sprintf("key-%020d", i)
+		value := fmt.Sprintf("value-%020d", i)
+		e.Put(key, []byte(value))
+	}
+}
+
+func getSomeStuff(e *engine.Engine) {
 	counter := 0
-	for i := range num {
-		key := fmt.Sprintf("key-%d", i)
+	for i := 0; i < 300000; i++ {
+		key := fmt.Sprintf("key-%020d", i)
 		if val, ok := e.Get(key); ok {
 			counter++
 			fmt.Println(string(val))
 		} else {
-			fmt.Println(key, "MISSED")
+			fmt.Println("MISSED IT", key)
 		}
 	}
 
-	log.Println("counter:", counter, "deleted:", deleted)
+	log.Println("counter:", counter)
 }
