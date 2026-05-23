@@ -29,7 +29,7 @@ type Engine struct {
 	immt      *memtable.Memtable
 	immtQueue []*memtable.Memtable
 
-	tableCache map[uint64]*sstable.TableReader
+	tableCache sync.Map
 
 	vs *meta.VersionSet
 
@@ -77,7 +77,6 @@ func New(opts *config.Options) (*Engine, error) {
 
 	e.vs = vs
 	atomic.StoreUint64(&e.seqNum, e.vs.LastSequenceNum())
-	e.tableCache = make(map[uint64]*sstable.TableReader)
 
 	if e.opts.CrashRecovery {
 		walPath := filepath.Join(opts.DataDir, "wal", fmt.Sprintf("wal-%06d.log", e.vs.LogNumber()))
@@ -139,6 +138,13 @@ func (e *Engine) getAt(key string, seqNum uint64) ([]byte, bool) {
 	var best *record.Record
 
 	checkTable := func(t *meta.TableMeta) {
+		log.Printf(
+			" file=%d [%s,%s], level: %d\n",
+			t.FileNum,
+			t.MinKey.UserKey,
+			t.MaxKey.UserKey,
+			t.Level,
+		)
 		reader, err := e.getReader(t)
 		if err != nil {
 			return
@@ -159,7 +165,6 @@ func (e *Engine) getAt(key string, seqNum uint64) ([]byte, bool) {
 		if level == 0 {
 			for i := len(tables) - 1; i >= 0; i-- {
 				t := tables[i]
-				// log.Println("Searching file:", t.FileNum)
 				if key < t.MinKey.UserKey || key > t.MaxKey.UserKey {
 					continue
 				}
@@ -279,9 +284,10 @@ func (e *Engine) Close() error {
 
 	close(e.flushChan)
 
-	for _, r := range e.tableCache {
-		r.Close()
-	}
+	e.tableCache.Range(func(key, value any) bool {
+		err := value.(*sstable.TableReader).Close()
+		return err == nil
+	})
 
 	if e.wal != nil {
 		return e.wal.Close()
@@ -328,8 +334,8 @@ func (e *Engine) write(key string, value []byte, typ record.IKType) {
 }
 
 func (e *Engine) getReader(t *meta.TableMeta) (*sstable.TableReader, error) {
-	if r, ok := e.tableCache[t.FileNum]; ok {
-		return r, nil
+	if r, ok := e.tableCache.Load(t.FileNum); ok {
+		return r.(*sstable.TableReader), nil
 	}
 
 	path := e.tablePath(int(t.Level), t.FileNum)
@@ -338,6 +344,6 @@ func (e *Engine) getReader(t *meta.TableMeta) (*sstable.TableReader, error) {
 		return nil, err
 	}
 
-	e.tableCache[t.FileNum] = r
+	e.tableCache.Store(t.FileNum, r)
 	return r, nil
 }

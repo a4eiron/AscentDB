@@ -85,6 +85,8 @@ func (e *Engine) compactLevel(level int, inputs []*meta.TableMeta, outFileNum ui
 		for _, r := range readers {
 			r.Close()
 		}
+
+		e.isCompacting.Store(false)
 		return
 	}
 
@@ -110,12 +112,15 @@ func (e *Engine) compactLevel(level int, inputs []*meta.TableMeta, outFileNum ui
 	e.mu.Lock()
 	if err := e.vs.LogAndApply(edit); err != nil {
 		log.Println(err)
+		e.isCompacting.Store(false)
+		e.mu.Unlock()
+		return
 	}
 
 	for _, t := range all {
-		if r, ok := e.tableCache[t.FileNum]; ok {
-			r.Close()
-			delete(e.tableCache, t.FileNum)
+		if r, ok := e.tableCache.Load(t.FileNum); ok {
+			r.(*sstable.TableReader).Close()
+			e.tableCache.Delete(t.FileNum)
 		}
 		os.Remove(e.tablePath(int(t.Level), t.FileNum))
 	}
@@ -131,7 +136,7 @@ func (e *Engine) writeCompactionOutput(
 	fileNum uint64,
 	level int,
 	iters []*sstable.SSTableIterator,
-	_ bool,
+	isBottomLevel bool,
 ) ([]*meta.TableMeta, error) {
 
 	merger := compaction.NewMergeIterator(iters)
@@ -154,8 +159,9 @@ func (e *Engine) writeCompactionOutput(
 		if writer == nil {
 			return nil
 		}
-		size, _ := writer.Size()
-		if err := writer.Close(); err != nil {
+		// size, _ := writer.Size()
+		size, err := writer.Close()
+		if err != nil {
 			return err
 		}
 
@@ -182,15 +188,14 @@ func (e *Engine) writeCompactionOutput(
 
 		// skip older veresions of the same user key
 		if rec.UserKey == lastUserKey {
-			if rec.SeqNum < oldestSnap {
-				merger.Next()
-				continue
-			}
+			merger.Next()
+			continue
 		}
 		lastUserKey = rec.UserKey
 
 		// drop tombstones at the bottom level
-		if rec.Type == record.TypeDel && rec.SeqNum < oldestSnap {
+		if rec.Type == record.TypeDel &&
+			isBottomLevel && rec.SeqNum < oldestSnap {
 			merger.Next()
 			continue
 		}
@@ -205,13 +210,13 @@ func (e *Engine) writeCompactionOutput(
 			return nil, err
 		}
 
-		size, _ := writer.Size()
+		size, _ := writer.EstimatedSize()
 		if size >= maxSSTableSize {
 			if err := closeWriter(); err != nil {
 				return nil, err
 			}
 
-			if merger.Valid() {
+			if size >= maxSSTableSize && merger.Valid() {
 				if err := openWriter(); err != nil {
 					return nil, err
 				}
@@ -227,7 +232,9 @@ func (e *Engine) writeCompactionOutput(
 				return nil, err
 			}
 		} else {
+			path := writer.Path()
 			writer.Close()
+			os.Remove(path)
 		}
 	}
 
@@ -256,12 +263,27 @@ func (e *Engine) pickCompactionInputs(level int) []*meta.TableMeta {
 		}
 	}
 
-	return []*meta.TableMeta{tables[idx]}
+	var selected []*meta.TableMeta
+	var pickedSize int64
+	targetSize := e.levelSize(level) - e.levelCapacity(level)
+	if targetSize < 0 {
+		targetSize = 0
+	}
+
+	for i := idx; i < len(tables); i++ {
+		selected = append(selected, tables[i])
+		pickedSize += int64(tables[i].FileSize)
+
+		if pickedSize >= targetSize {
+			break
+		}
+	}
+
+	return selected
 }
 
 func (e *Engine) levelSize(level int) int64 {
 	var total int64
-
 	for _, t := range e.vs.Current.Levels[level] {
 		total += int64(t.FileSize)
 	}

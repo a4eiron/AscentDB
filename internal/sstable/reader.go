@@ -1,17 +1,21 @@
 package sstable
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 
 	"github.com/a4eiron/ascentdb/internal/record"
 )
 
 type TableReader struct {
-	file   *os.File
-	index  *IndexBlock
-	filter *Filter
-	footer *Footer
+	file    *os.File
+	index   *IndexBlock
+	filter  *Filter
+	footer  *Footer
+	cache   *BlockCache
+	fileNum uint64
 }
 
 func Open(path string) (*TableReader, error) {
@@ -55,11 +59,17 @@ func Open(path string) (*TableReader, error) {
 		return nil, err
 	}
 
+	var fileNum uint64
+	base := filepath.Base(file.Name())
+	fmt.Sscanf(base, "table-%06d.sst", &fileNum)
+
 	reader := &TableReader{
-		file:   file,
-		index:  index,
-		filter: filter,
-		footer: footer,
+		file:    file,
+		index:   index,
+		filter:  filter,
+		footer:  footer,
+		cache:   NewBlockCache(30),
+		fileNum: fileNum,
 	}
 
 	return reader, nil
@@ -98,10 +108,20 @@ func (r *TableReader) Close() error {
 }
 
 func (r *TableReader) readBlock(offset uint64, size uint32) (*Block, error) {
+	if r.cache != nil {
+		if data, ok := r.cache.Get(r.fileNum, offset); ok {
+			return decodeBlock(data)
+		}
+	}
+
 	blockBytes := make([]byte, size)
 	_, err := r.file.ReadAt(blockBytes, int64(offset))
 	if err != nil {
 		return nil, err
+	}
+
+	if r.cache != nil {
+		r.cache.Set(r.fileNum, offset, blockBytes)
 	}
 	return decodeBlock(blockBytes)
 }

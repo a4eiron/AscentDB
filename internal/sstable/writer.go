@@ -7,12 +7,13 @@ import (
 )
 
 type TableWriter struct {
-	file      *os.File
-	blockSize int
-	block     *Block
-	index     *IndexBlock
-	filter    *Filter
-	offset    uint64
+	file          *os.File
+	blockSize     int
+	block         *Block
+	index         *IndexBlock
+	filter        *Filter
+	offset        uint64
+	estimatedSize uint64
 }
 
 func Create(path string, blockSize int) (*TableWriter, error) {
@@ -31,9 +32,8 @@ func Create(path string, blockSize int) (*TableWriter, error) {
 
 func (w *TableWriter) Add(r record.Record) error {
 	w.block.entries = append(w.block.entries, r)
-
+	w.estimatedSize += uint64(r.Size())
 	w.filter.Add(r.UserKey)
-
 	if blockSize(*w.block) >= w.blockSize {
 		return w.flushBlock()
 	}
@@ -45,13 +45,13 @@ func (w *TableWriter) Path() string {
 	return w.file.Name()
 }
 
-func (w *TableWriter) Size() (int64, error) {
-	stat, err := w.file.Stat()
-	if err != nil {
-		return 0, err
-	}
-	size := stat.Size()
-	return size, nil
+func (w *TableWriter) EstimatedSize() (int64, error) {
+	// stat, err := w.file.Stat()
+	// if err != nil {
+	// 	return 0, err
+	// }
+	// size := stat.Size()
+	return int64(w.estimatedSize), nil
 }
 
 func (w *TableWriter) flushBlock() error {
@@ -82,10 +82,10 @@ func (w *TableWriter) flushBlock() error {
 	return nil
 }
 
-func (w *TableWriter) Close() error {
+func (w *TableWriter) Close() (int64, error) {
 
 	if err := w.flushBlock(); err != nil {
-		return err
+		return 0, err
 	}
 
 	indexOffset := w.offset
@@ -93,7 +93,7 @@ func (w *TableWriter) Close() error {
 
 	indexSize, err := w.file.Write(indexBytes)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	w.offset += uint64(indexSize)
@@ -102,7 +102,7 @@ func (w *TableWriter) Close() error {
 	filterBytes := EncodeFilter(w.filter)
 	filterSize, err := w.file.Write(filterBytes)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	w.offset += uint64(filterSize)
@@ -119,12 +119,18 @@ func (w *TableWriter) Close() error {
 
 	_, err = w.file.Write(footerBytes)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	if err := w.file.Sync(); err != nil {
-		return err
+		return 0, err
 	}
 
-	return w.file.Close()
+	stat, err := w.file.Stat()
+	if err != nil {
+		return 0, err
+	}
+	size := stat.Size()
+
+	return size, w.file.Close()
 }

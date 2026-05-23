@@ -46,7 +46,7 @@ func (e *Engine) rotate() (*flushTask, error) {
 		log.Println(err)
 	}
 
-	e.mt = memtable.New(64 * 1024)
+	e.mt = memtable.New(uint64(e.opts.MemtableSize))
 	e.wal = newWal
 
 	// create an sstable writer
@@ -102,14 +102,15 @@ func (e *Engine) flush(task *flushTask) error {
 	}
 
 	var fileNum uint64
-	fmt.Sscanf(filepath.Base(task.writer.Path()), "table-%06d", &fileNum)
+	fmt.Sscanf(filepath.Base(task.writer.Path()), "table-%06d.sst", &fileNum)
 
-	fileSize, err := task.writer.Size()
+	// fileSize, err := task.writer.Size()
+	// if err != nil {
+	// 	return fmt.Errorf("failed to get writer size: %w", err)
+	// }
+
+	fileSize, err := task.writer.Close()
 	if err != nil {
-		return fmt.Errorf("failed to get writer size: %w", err)
-	}
-
-	if err := task.writer.Close(); err != nil {
 		return fmt.Errorf("failed to close sstable: %w", err)
 	}
 
