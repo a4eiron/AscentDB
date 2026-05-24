@@ -46,11 +46,6 @@ func (w *TableWriter) Path() string {
 }
 
 func (w *TableWriter) EstimatedSize() (int64, error) {
-	// stat, err := w.file.Stat()
-	// if err != nil {
-	// 	return 0, err
-	// }
-	// size := stat.Size()
 	return int64(w.estimatedSize), nil
 }
 

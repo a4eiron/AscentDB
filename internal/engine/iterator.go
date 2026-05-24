@@ -9,6 +9,8 @@ type ScanIterator struct {
 	iters   []internal.Iterator
 	end     string
 	current *record.Record
+	buf     record.Record
+	bufKey  record.InternalKey
 }
 
 func NewScanIterator(iters []internal.Iterator, end string) *ScanIterator {
@@ -116,14 +118,17 @@ func (sIter *ScanIterator) advance() {
 			continue
 		}
 
-		sIter.current = &record.Record{
-			InternalKey: &record.InternalKey{
-				UserKey: userKey,
-				SeqNum:  bestSeq,
-				Type:    bestType,
-			},
-			Value: bestVal,
-		}
+		sIter.bufKey = record.InternalKey{UserKey: userKey, SeqNum: bestSeq, Type: bestType}
+		sIter.buf = record.Record{InternalKey: &sIter.bufKey, Value: bestVal}
+		sIter.current = &sIter.buf
+		// sIter.current = &record.Record{
+		// 	InternalKey: &record.InternalKey{
+		// 		UserKey: userKey,
+		// 		SeqNum:  bestSeq,
+		// 		Type:    bestType,
+		// 	},
+		// 	Value: bestVal,
+		// }
 
 		return
 	}

@@ -18,7 +18,7 @@ type TableReader struct {
 	fileNum uint64
 }
 
-func Open(path string) (*TableReader, error) {
+func Open(path string, cache *BlockCache) (*TableReader, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -68,7 +68,7 @@ func Open(path string) (*TableReader, error) {
 		index:   index,
 		filter:  filter,
 		footer:  footer,
-		cache:   NewBlockCache(30),
+		cache:   cache,
 		fileNum: fileNum,
 	}
 

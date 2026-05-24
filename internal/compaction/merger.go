@@ -71,10 +71,12 @@ func (iter *MergeIterator) Next() {
 	item := heap.Pop(&iter.heap).(*heapItem)
 	item.iter.Next()
 	if item.iter.Valid() {
-		item.record = &record.Record{
-			InternalKey: item.iter.Key(),
-			Value:       item.iter.Value(),
-		}
+		// item.record = &record.Record{
+		// 	InternalKey: item.iter.Key(),
+		// 	Value:       item.iter.Value(),
+		// }
+		item.record.InternalKey = item.iter.Key()
+		item.record.Value = item.iter.Value()
 		heap.Push(&iter.heap, item)
 	}
 }

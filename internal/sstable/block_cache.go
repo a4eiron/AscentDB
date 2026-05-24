@@ -27,31 +27,31 @@ func (bc *BlockCache) Set(fileNum, offset uint64, data []byte) {
 }
 
 type entry struct {
-	key   uint64
+	key   blockKey
 	value []byte
+}
+
+type blockKey struct {
+	fileNum uint64
+	offset  uint64
 }
 
 type LRU struct {
 	cap   int
 	ll    *list.List
-	items map[uint64]*list.Element
+	items map[blockKey]*list.Element
 }
 
 func newLRU(cap int) *LRU {
 	return &LRU{
 		cap:   cap,
 		ll:    list.New(),
-		items: make(map[uint64]*list.Element),
+		items: make(map[blockKey]*list.Element),
 	}
 }
 
-func packKey(fileNum, offset uint64) uint64 {
-	return fileNum<<32 | (offset >> 3)
-}
-
 func (c *LRU) get(fileNum, offset uint64) ([]byte, bool) {
-	k := packKey(fileNum, offset)
-	ele, ok := c.items[k]
+	ele, ok := c.items[blockKey{fileNum: fileNum, offset: offset}]
 	if !ok {
 		return nil, false
 	}
@@ -61,14 +61,14 @@ func (c *LRU) get(fileNum, offset uint64) ([]byte, bool) {
 }
 
 func (c *LRU) set(fileNum, offset uint64, data []byte) {
-	k := packKey(fileNum, offset)
-	if ele, ok := c.items[k]; ok {
+	key := blockKey{fileNum: fileNum, offset: offset}
+	if ele, ok := c.items[key]; ok {
 		c.ll.MoveToFront(ele)
 		ele.Value.(*entry).value = data
 		return
 	}
-	ele := c.ll.PushFront(&entry{key: k, value: data})
-	c.items[k] = ele
+	ele := c.ll.PushFront(&entry{key: key, value: data})
+	c.items[key] = ele
 	if c.ll.Len() > c.cap {
 		c.evict()
 	}
@@ -80,5 +80,5 @@ func (c *LRU) evict() {
 		return
 	}
 	c.ll.Remove(ele)
-	delete(c.items, uint64(ele.Value.(*entry).key))
+	delete(c.items, ele.Value.(*entry).key)
 }

@@ -2,6 +2,7 @@ package memtable
 
 import (
 	"math/rand"
+	"sync"
 
 	"github.com/a4eiron/ascentdb/internal/record"
 )
@@ -19,21 +20,33 @@ type Skiplist struct {
 	level    int
 	maxLevel int
 	compare  func(a, b record.InternalKey) int
+	pool     *sync.Pool
+	// updateBuf []*SkiplistNode
 }
 
 func NewSkiplist(maxLevel uint, compare func(a, b record.InternalKey) int) *Skiplist {
 	return &Skiplist{
-		head: &SkiplistNode{
-			forward: make([]*SkiplistNode, maxLevel),
-		},
+		head:     &SkiplistNode{forward: make([]*SkiplistNode, maxLevel)},
 		level:    1,
 		maxLevel: int(maxLevel),
 		compare:  compare,
+		// updateBuf: make([]*SkiplistNode, maxLevel),
+		pool: &sync.Pool{
+			New: func() any {
+				buf := make([]*SkiplistNode, maxLevel)
+				return &buf
+			},
+		},
 	}
 }
 
 func (sl *Skiplist) insert(key record.InternalKey, value []byte) {
-	update := make([]*SkiplistNode, sl.maxLevel)
+	// update := sl.updateBuf[:sl.maxLevel]
+	updatePtr := sl.pool.Get().(*[]*SkiplistNode)
+	update := *updatePtr
+	for i := range update {
+		update[i] = nil
+	}
 	curr := sl.head
 
 	for i := sl.level - 1; i >= 0; i-- {
@@ -61,6 +74,8 @@ func (sl *Skiplist) insert(key record.InternalKey, value []byte) {
 		newNode.forward[i] = update[i].forward[i]
 		update[i].forward[i] = newNode
 	}
+
+	sl.pool.Put(updatePtr)
 
 }
 

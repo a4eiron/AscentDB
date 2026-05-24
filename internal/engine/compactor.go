@@ -66,7 +66,7 @@ func (e *Engine) compactLevel(level int, inputs []*meta.TableMeta, outFileNum ui
 	readers := make([]*sstable.TableReader, 0, len(all))
 	for _, t := range all {
 		path := e.tablePath(int(t.Level), t.FileNum)
-		reader, err := sstable.Open(path)
+		reader, err := sstable.Open(path, e.blockCache)
 		if err != nil {
 			for _, r := range readers {
 				r.Close()

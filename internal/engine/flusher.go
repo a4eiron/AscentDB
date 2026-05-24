@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 
 	"github.com/a4eiron/ascentdb/internal/memtable"
 	"github.com/a4eiron/ascentdb/internal/meta"
@@ -18,6 +17,7 @@ type flushTask struct {
 	oldWal     *wal.WAL
 	mt         *memtable.Memtable
 	writer     *sstable.TableWriter
+	fileNum    uint64
 }
 
 func (e *Engine) rotate() (*flushTask, error) {
@@ -25,32 +25,35 @@ func (e *Engine) rotate() (*flushTask, error) {
 	blockSize := e.opts.BlockSize
 
 	// capture the active memtable and wal
-	mt := e.mt
-	oldWal := e.wal
-
 	// make them immutable
+	mt := e.mt
 	e.immt = mt
-	e.imwal = oldWal
 
-	// crate  new memtable and wal
-	fileNum := e.vs.NextFileNum()
+	var oldWal *wal.WAL
+	var oldWalPath string
 
-	newWal, err := wal.Open(e.walPath(fileNum), e.opts.WALSyncInterval)
-	if err != nil {
-		log.Println("failed to create new WAL", err)
-		return nil, err
-	}
+	if e.opts.CrashRecovery {
+		oldWal = e.wal
+		e.imwal = oldWal
+		oldWalPath = oldWal.Path()
 
-	edit := &meta.VersionEdit{LogNumber: &fileNum}
-	if err := e.vs.LogAndApply(edit); err != nil {
-		log.Println(err)
+		fileNum := e.vs.NextFileNum()
+		newWal, err := wal.Open(e.walPath(fileNum), e.opts.WALSyncInterval)
+		if err != nil {
+			log.Println("failed to create new WAL", err)
+			return nil, err
+		}
+		e.wal = newWal
+		edit := &meta.VersionEdit{LogNumber: &fileNum}
+		if err := e.vs.LogAndApply(edit); err != nil {
+			log.Println(err)
+		}
 	}
 
 	e.mt = memtable.New(uint64(e.opts.MemtableSize))
-	e.wal = newWal
 
 	// create an sstable writer
-	fileNum = e.vs.NextFileNum()
+	fileNum := e.vs.NextFileNum()
 	e.ensureLevelDir(0)
 	path := e.tablePath(0, fileNum)
 
@@ -61,9 +64,10 @@ func (e *Engine) rotate() (*flushTask, error) {
 
 	task := &flushTask{
 		oldWal:     oldWal,
-		oldWalPath: oldWal.Path(),
+		oldWalPath: oldWalPath,
 		mt:         mt,
 		writer:     writer,
+		fileNum:    fileNum,
 	}
 
 	return task, nil
@@ -101,13 +105,13 @@ func (e *Engine) flush(task *flushTask) error {
 		}
 	}
 
-	var fileNum uint64
-	fmt.Sscanf(filepath.Base(task.writer.Path()), "table-%06d.sst", &fileNum)
+	fileNum := task.fileNum
+	// fmt.Sscanf(filepath.Base(task.writer.Path()), "table-%06d.sst", &fileNum)
 
-	// fileSize, err := task.writer.Size()
-	// if err != nil {
-	// 	return fmt.Errorf("failed to get writer size: %w", err)
-	// }
+	if first {
+		task.writer.Close()
+		return os.Remove(task.writer.Path())
+	}
 
 	fileSize, err := task.writer.Close()
 	if err != nil {
@@ -115,11 +119,6 @@ func (e *Engine) flush(task *flushTask) error {
 	}
 
 	nextFileNum := e.vs.NextFileNum()
-
-	if first {
-		task.writer.Close()
-		return nil
-	}
 
 	edit := &meta.VersionEdit{
 		NextFileNum:  &nextFileNum,

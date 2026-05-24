@@ -141,6 +141,9 @@ func (w *WAL) Path() string {
 }
 
 func (w *WAL) Close() error {
+	if w == nil {
+		return nil
+	}
 	if w.interval > 0 {
 		close(w.closeChan)
 	}

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/a4eiron/ascentdb/internal/config"
@@ -25,58 +26,42 @@ func main() {
 	}
 	defer e.Close()
 
-	// putSomeStuff(e)
+	// putSomeStuff(e, 0, 100000)
 
-	// e.Delete(fmt.Sprintf("key-%020d", 4323))
-	// e.Delete(fmt.Sprintf("key-%020d", 10))
-	// e.Delete(fmt.Sprintf("key-%020d", 13223))
-	// getSomeStuff(e)
+	var wg sync.WaitGroup
 
-	iter := e.Scan(
-		fmt.Sprintf("key-%020d", 4320),
-		fmt.Sprintf("key-%020d", 4330),
-	)
+	wg.Go(func() {
+		getSomeStuff(e, 0, 50000)
+	})
+	wg.Go(func() {
+		getSomeStuff(e, 0, 100000)
+	})
 
-	for ; iter.Valid(); iter.Next() {
-		fmt.Println(iter.Key(), iter.Valid())
-	}
-
-	// snap := e.NewSnapshot()
-
-	// e.Put(
-	// 	fmt.Sprintf("key-%020d", 4342),
-	// 	fmt.Appendf(nil, "value-%020d-updated", 4342),
-	// )
-
-	// val, _ := snap.Get(fmt.Sprintf("key-%020d", 4342))
-	// fmt.Println("snapshot val: ", string(val))
-
-	// e.Delete(fmt.Sprintf("key-%020d", 4342))
-
-	// val, _ = e.Get(fmt.Sprintf("key-%020d", 4342))
-	// fmt.Println("live val: ", string(val))
+	wg.Wait()
 
 }
 
-func putSomeStuff(e *engine.Engine) {
-	for i := 0; i < 600000; i++ {
+func putSomeStuff(e *engine.Engine, start, end int) {
+	for i := start; i < end; i++ {
 		key := fmt.Sprintf("key-%020d", i)
 		value := fmt.Sprintf("value-%020d", i)
 		e.Put(key, []byte(value))
 	}
 }
 
-func getSomeStuff(e *engine.Engine) {
+func getSomeStuff(e *engine.Engine, start, end int) {
 	counter := 0
-	for i := 0; i < 600000; i++ {
+	for i := start; i < end; i++ {
 		key := fmt.Sprintf("key-%020d", i)
 		if val, ok := e.Get(key); ok {
 			counter++
-			fmt.Println(string(val))
+			log.Println(string(val))
 		} else {
-			fmt.Println("MISSED IT", key)
+			log.Println("MISSED IT", key)
 		}
 	}
 
+	log.Println("==============================================================")
 	log.Println("counter:", counter)
+	log.Println("==============================================================")
 }
