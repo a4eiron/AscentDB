@@ -8,7 +8,7 @@ import (
 
 type Item struct {
 	Iter   Iterator
-	Record *record.Record
+	Record record.Record
 }
 
 type IteratorHeap struct {
@@ -20,7 +20,7 @@ func (h IteratorHeap) Len() int {
 }
 
 func (h IteratorHeap) Less(i, j int) bool {
-	return h.items[i].Record.Compare(*h.items[j].Record.InternalKey) < 0
+	return h.items[i].Record.Compare(h.items[j].Record.InternalKey) < 0
 }
 
 func (h IteratorHeap) Swap(i, j int) {
@@ -42,21 +42,26 @@ func (h *IteratorHeap) Pop() any {
 }
 
 func NewIteratorHeap(iters []Iterator) *IteratorHeap {
-	h := &IteratorHeap{}
-	heap.Init(h)
-
+	items := make([]*Item, 0, len(iters))
 	for _, iter := range iters {
 		if !iter.Valid() {
 			continue
 		}
-		heap.Push(h, &Item{
+		items = append(items, &Item{
 			Iter: iter,
-			Record: &record.Record{
+			Record: record.Record{
 				InternalKey: iter.Key(),
 				Value:       iter.Value(),
 			},
 		})
 	}
+
+	h := &IteratorHeap{
+		items: items,
+	}
+
+	heap.Init(h)
+
 	return h
 }
 
@@ -71,21 +76,13 @@ func (h *IteratorHeap) Peek() *Item {
 	return h.items[0]
 }
 
-func (h *IteratorHeap) PopAndAdvance() *Item {
+func (h *IteratorHeap) PopAndAdvance() record.Record {
 	if h.Len() == 0 {
-		return nil
+		return record.Record{}
 	}
 	item := heap.Pop(h).(*Item)
 
-	key := *item.Record.InternalKey
-	val := item.Record.Value
-	result := &Item{
-		Record: &record.Record{
-			InternalKey: &key,
-			Value:       val,
-		},
-	}
-
+	rec := item.Record
 	item.Iter.Next()
 
 	if item.Iter.Valid() {
@@ -93,6 +90,5 @@ func (h *IteratorHeap) PopAndAdvance() *Item {
 		item.Record.Value = item.Iter.Value()
 		heap.Push(h, item)
 	}
-
-	return result
+	return rec
 }

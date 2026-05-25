@@ -3,7 +3,7 @@ package record
 import "github.com/a4eiron/ascentdb/internal/codec"
 
 type Record struct {
-	*InternalKey
+	InternalKey
 	Value []byte
 }
 
@@ -11,7 +11,7 @@ func (r *Record) IsTombstone() bool {
 	return r.Type == TypeDel
 }
 
-func (r *Record) Size() uint32 {
+func (r Record) Size() uint32 {
 	return r.KeySize() + 4 + uint32(len(r.Value))
 }
 
@@ -23,7 +23,7 @@ func (r *Record) ValueLen() uint32 {
 	return uint32(len(r.Value))
 }
 
-func EncodeRecord(r *Record) []byte {
+func EncodeRecord(r Record) []byte {
 	payload := codec.NewBuffer(int(r.Size()))
 
 	EncodeInternalKey(payload, r.InternalKey)
@@ -33,24 +33,24 @@ func EncodeRecord(r *Record) []byte {
 	return payload.Bytes()
 }
 
-func DecodeRecord(data []byte) (*Record, error) {
+func DecodeRecord(data []byte) (Record, error) {
 	buf := codec.NewBufferFromBytes(data)
 
 	internalKey, err := DecodeInternalKey(buf)
 	if err != nil {
-		return nil, err
+		return Record{}, err
 	}
 	valLen, err := buf.ReadUint32()
 	if err != nil {
-		return nil, err
+		return Record{}, err
 	}
 
 	valBytes, err := buf.ReadBytes(int(valLen))
 	if err != nil {
-		return nil, err
+		return Record{}, err
 	}
 
-	r := &Record{
+	r := Record{
 		InternalKey: internalKey,
 		Value:       valBytes,
 	}

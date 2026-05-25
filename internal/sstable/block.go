@@ -9,9 +9,8 @@ type Block struct {
 	entries []record.Record
 }
 
-func encodeBlock(b *Block) []byte {
+func encodeBlock(b *Block, size int) []byte {
 
-	size := blockSize(*b)
 	buf := codec.NewBuffer(size)
 
 	// blocksize
@@ -23,7 +22,7 @@ func encodeBlock(b *Block) []byte {
 	// entries
 	for _, entry := range b.entries {
 		buf.WriteUint32(entry.Size())
-		entryBytes := record.EncodeRecord(&entry)
+		entryBytes := record.EncodeRecord(entry)
 		buf.WriteBytes(entryBytes)
 	}
 
@@ -45,10 +44,10 @@ func decodeBlock(b []byte) (*Block, error) {
 	}
 
 	block := &Block{
-		entries: make([]record.Record, 0),
+		entries: make([]record.Record, numEntries),
 	}
 
-	for range numEntries {
+	for i := range numEntries {
 		entrySize, err := buf.ReadUint32()
 		if err != nil {
 			return nil, err
@@ -64,7 +63,7 @@ func decodeBlock(b []byte) (*Block, error) {
 			return nil, err
 		}
 
-		block.entries = append(block.entries, *rec)
+		block.entries[i] = rec
 	}
 
 	return block, nil

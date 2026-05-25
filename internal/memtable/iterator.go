@@ -27,11 +27,11 @@ func (iter *MemtableIterator) Valid() bool {
 	return iter.curr != nil
 }
 
-func (iter *MemtableIterator) Key() *record.InternalKey {
+func (iter *MemtableIterator) Key() record.InternalKey {
 	if iter.curr != nil {
-		return &iter.curr.key
+		return iter.curr.key
 	}
-	return &record.InternalKey{}
+	return record.InternalKey{}
 }
 
 func (iter *MemtableIterator) Value() []byte {

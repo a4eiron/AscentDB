@@ -9,7 +9,6 @@ type ScanIterator struct {
 	iters      []internal.Iterator
 	end        string
 	seqNum     uint64
-	currentKey record.InternalKey
 	currentRec record.Record
 	current    *record.Record
 	heap       *internal.IteratorHeap
@@ -30,7 +29,7 @@ func (sIter *ScanIterator) Valid() bool {
 	return sIter.current != nil
 }
 
-func (sIter *ScanIterator) Key() *record.InternalKey {
+func (sIter *ScanIterator) Key() record.InternalKey {
 	return sIter.current.InternalKey
 }
 
@@ -63,24 +62,28 @@ func (sIter *ScanIterator) advance() {
 			sIter.current = nil
 			return
 		}
-		var best *record.Record
-		for !sIter.heap.Empty() && sIter.heap.Peek().Record.UserKey == userKey {
-			item := sIter.heap.PopAndAdvance()
+		var best record.Record
+		found := false
 
-			if item.Record.SeqNum > sIter.seqNum {
+		for !sIter.heap.Empty() && sIter.heap.Peek().Record.UserKey == userKey {
+			rec := sIter.heap.PopAndAdvance()
+
+			if rec.SeqNum > sIter.seqNum {
 				continue
 			}
 
-			if best == nil || item.Record.SeqNum > best.SeqNum {
-				best = item.Record
+			if !found || rec.SeqNum > best.SeqNum {
+				best = rec
+				found = true
 			}
 		}
 
-		if best == nil || best.IsTombstone() {
+		if !found || best.IsTombstone() {
 			continue
 		}
 
-		sIter.current = best
+		sIter.currentRec = best
+		sIter.current = &sIter.currentRec
 		return
 	}
 	sIter.current = nil

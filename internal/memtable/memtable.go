@@ -24,11 +24,11 @@ func New(maxSize uint64) *Memtable {
 	}
 }
 
-func (m *Memtable) Put(r *record.Record) error {
+func (m *Memtable) Put(r record.Record) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.list.insert(*r.InternalKey, r.Value)
+	m.list.insert(r.InternalKey, r.Value)
 	m.size += uint64(r.Size())
 	return nil
 }

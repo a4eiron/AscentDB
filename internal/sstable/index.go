@@ -10,7 +10,7 @@ type IndexBlock struct {
 }
 
 type IndexEntry struct {
-	SeparatorKey *record.InternalKey
+	SeparatorKey record.InternalKey
 	BlockOffset  uint64
 	BlockSize    uint32
 }

@@ -74,7 +74,7 @@ func New(opts *config.Options) (*Engine, error) {
 	e.vs = vs
 	atomic.StoreUint64(&e.seqNum, e.vs.LastSequenceNum())
 
-	e.blockCache = sstable.NewBlockCache(40)
+	e.blockCache = sstable.NewBlockCache(1024)
 
 	if e.opts.CrashRecovery {
 		walPath := filepath.Join(opts.DataDir, "wal", fmt.Sprintf("wal-%06d.log", e.vs.LogNumber()))

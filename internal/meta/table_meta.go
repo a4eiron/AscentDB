@@ -33,10 +33,10 @@ func encodeTableMeta(m *TableMeta) []byte {
 	buf.WriteUint32(m.Level)
 
 	buf.WriteUint32(minKeySize)
-	record.EncodeInternalKey(buf, &m.MinKey)
+	record.EncodeInternalKey(buf, m.MinKey)
 
 	buf.WriteUint32(maxKeySize)
-	record.EncodeInternalKey(buf, &m.MaxKey)
+	record.EncodeInternalKey(buf, m.MaxKey)
 
 	return buf.Bytes()
 }
@@ -89,8 +89,8 @@ func decodeTableMeta(b []byte) (*TableMeta, error) {
 		FileNum:  fileNum,
 		FileSize: fileSize,
 		Level:    level,
-		MinKey:   *minKey,
-		MaxKey:   *maxKey,
+		MinKey:   minKey,
+		MaxKey:   maxKey,
 	}
 
 	return t, nil

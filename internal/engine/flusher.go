@@ -85,7 +85,7 @@ func (e *Engine) runFlusher() {
 func (e *Engine) flush(task *flushTask) error {
 
 	first := true
-	var firstKey, lastKey *record.InternalKey
+	var firstKey, lastKey record.InternalKey
 
 	for iter := task.mt.Iterator(); iter.Valid(); iter.Next() {
 		key := iter.Key()
@@ -128,8 +128,8 @@ func (e *Engine) flush(task *flushTask) error {
 				FileNum:  fileNum,
 				FileSize: uint64(fileSize),
 				Level:    0,
-				MinKey:   *firstKey,
-				MaxKey:   *lastKey,
+				MinKey:   firstKey,
+				MaxKey:   lastKey,
 			},
 		},
 	}

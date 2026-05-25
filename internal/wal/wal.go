@@ -62,7 +62,7 @@ func (w *WAL) syncer() {
 
 }
 
-func (w *WAL) Append(r *record.Record) error {
+func (w *WAL) Append(r record.Record) error {
 	recordBytes := record.EncodeRecord(r)
 	crc := crc32.ChecksumIEEE(recordBytes)
 
@@ -77,7 +77,7 @@ func (w *WAL) Append(r *record.Record) error {
 	return err
 }
 
-func Replay(w *WAL, fn func(r *record.Record) error) error {
+func Replay(w *WAL, fn func(r record.Record) error) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -85,9 +85,12 @@ func Replay(w *WAL, fn func(r *record.Record) error) error {
 		return err
 	}
 
+	crcBuf := make([]byte, 4)
+	sizeBuf := make([]byte, 4)
+	var recBuf []byte
+
 	for {
 
-		crcBuf := make([]byte, 4)
 		_, err := io.ReadFull(w.file, crcBuf)
 		if err == io.EOF {
 			break
@@ -98,15 +101,15 @@ func Replay(w *WAL, fn func(r *record.Record) error) error {
 
 		expectedCRC := binary.LittleEndian.Uint32(crcBuf)
 
-		sizeBuf := make([]byte, 4)
 		_, err = io.ReadFull(w.file, sizeBuf)
 		if err != nil {
 			return err
 		}
 
 		recSize := binary.LittleEndian.Uint32(sizeBuf)
-
-		recBuf := make([]byte, recSize)
+		if cap(recBuf) < int(recSize) {
+			recBuf = make([]byte, recSize)
+		}
 		_, err = io.ReadFull(w.file, recBuf)
 		if err != nil {
 			return err

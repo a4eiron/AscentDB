@@ -9,7 +9,7 @@ import (
 
 func (e *Engine) recover() error {
 	var maxSeq uint64
-	err := wal.Replay(e.wal, func(r *record.Record) error {
+	err := wal.Replay(e.wal, func(r record.Record) error {
 		e.mt.Put(r)
 		if r.SeqNum > maxSeq {
 			maxSeq = r.SeqNum

@@ -21,7 +21,7 @@ func (k *InternalKey) keyLen() uint32 {
 	return uint32(len(k.UserKey))
 }
 
-func (k *InternalKey) Compare(other InternalKey) int {
+func (k InternalKey) Compare(other InternalKey) int {
 
 	if k.UserKey < other.UserKey {
 		return -1
@@ -42,35 +42,35 @@ func (k *InternalKey) Compare(other InternalKey) int {
 	return 0
 }
 
-func EncodeInternalKey(buf *codec.Buffer, k *InternalKey) {
+func EncodeInternalKey(buf *codec.Buffer, k InternalKey) {
 	buf.WriteUint32(k.keyLen())
 	buf.WriteBytes([]byte(k.UserKey))
 	buf.WriteUint64(k.SeqNum)
 	buf.WriteUint8(uint8(k.Type))
 }
 
-func DecodeInternalKey(buf *codec.Buffer) (*InternalKey, error) {
+func DecodeInternalKey(buf *codec.Buffer) (InternalKey, error) {
 	keyLen, err := buf.ReadUint32()
 	if err != nil {
-		return nil, err
+		return InternalKey{}, err
 	}
 
 	keyBytes, err := buf.ReadBytes(int(keyLen))
 	if err != nil {
-		return nil, err
+		return InternalKey{}, err
 	}
 
 	seq, err := buf.ReadUint64()
 	if err != nil {
-		return nil, err
+		return InternalKey{}, err
 	}
 
 	t, err := buf.ReadUint8()
 	if err != nil {
-		return nil, err
+		return InternalKey{}, err
 	}
 
-	return &InternalKey{
+	return InternalKey{
 		UserKey: string(keyBytes),
 		SeqNum:  seq,
 		Type:    IKType(t),

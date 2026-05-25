@@ -141,7 +141,7 @@ func (e *Engine) writeCompactionOutput(
 	var outTables []*meta.TableMeta
 
 	var writer *sstable.TableWriter
-	var firstKey, lastKey *record.InternalKey
+	var firstKey, lastKey record.InternalKey
 	var lastUserKey string
 	first := true
 
@@ -167,8 +167,8 @@ func (e *Engine) writeCompactionOutput(
 			FileNum:  fileNum,
 			FileSize: uint64(size),
 			Level:    uint32(level),
-			MinKey:   *firstKey,
-			MaxKey:   *lastKey,
+			MinKey:   firstKey,
+			MaxKey:   lastKey,
 		})
 
 		writer = nil
@@ -204,7 +204,7 @@ func (e *Engine) writeCompactionOutput(
 		}
 		lastKey = rec.InternalKey
 
-		if err := writer.Add(*rec); err != nil {
+		if err := writer.Add(rec); err != nil {
 			return nil, err
 		}
 

@@ -28,6 +28,6 @@ func (iter *MergeIterator) Next() {
 	iter.heap.PopAndAdvance()
 }
 
-func (iter *MergeIterator) Record() *record.Record {
+func (iter *MergeIterator) Record() record.Record {
 	return iter.heap.Peek().Record
 }

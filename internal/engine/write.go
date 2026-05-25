@@ -21,8 +21,8 @@ func (e *Engine) Delete(key string) {
 
 func (e *Engine) write(key string, value []byte, typ record.IKType) error {
 	seq := atomic.AddUint64(&e.seqNum, 1)
-	r := &record.Record{
-		InternalKey: &record.InternalKey{
+	r := record.Record{
+		InternalKey: record.InternalKey{
 			UserKey: key,
 			Type:    typ,
 			SeqNum:  seq,

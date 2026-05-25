@@ -7,13 +7,14 @@ import (
 )
 
 type TableWriter struct {
-	file          *os.File
-	blockSize     int
-	block         *Block
-	index         *IndexBlock
-	filter        *Filter
-	offset        uint64
-	estimatedSize uint64
+	file             *os.File
+	blockSize        int
+	block            *Block
+	currentBlockSize int
+	index            *IndexBlock
+	filter           *Filter
+	offset           uint64
+	estimatedSize    uint64
 }
 
 func Create(path string, blockSize int) (*TableWriter, error) {
@@ -22,19 +23,25 @@ func Create(path string, blockSize int) (*TableWriter, error) {
 		return nil, err
 	}
 	return &TableWriter{
-		file:      file,
-		blockSize: blockSize,
-		block:     &Block{entries: make([]record.Record, 0)},
-		index:     &IndexBlock{entries: make([]IndexEntry, 0)},
-		filter:    NewFilter(1000, 0.01),
+		file:             file,
+		blockSize:        blockSize,
+		currentBlockSize: 8,
+		block:            &Block{entries: make([]record.Record, 0)},
+		index:            &IndexBlock{entries: make([]IndexEntry, 0)},
+		filter:           NewFilter(1000, 0.01),
 	}, nil
 }
 
 func (w *TableWriter) Add(r record.Record) error {
 	w.block.entries = append(w.block.entries, r)
+
+	w.currentBlockSize += 4             // entry size
+	w.currentBlockSize += int(r.Size()) // encoded record
+
 	w.estimatedSize += uint64(r.Size())
 	w.filter.Add(r.UserKey)
-	if blockSize(*w.block) >= w.blockSize {
+
+	if int(w.currentBlockSize) >= w.blockSize {
 		return w.flushBlock()
 	}
 
@@ -54,7 +61,7 @@ func (w *TableWriter) flushBlock() error {
 		return nil
 	}
 
-	encodedBlock := encodeBlock(w.block)
+	encodedBlock := encodeBlock(w.block, w.currentBlockSize)
 	offset := w.offset
 
 	n, err := w.file.Write(encodedBlock)
@@ -73,6 +80,7 @@ func (w *TableWriter) flushBlock() error {
 	w.offset += uint64(n)
 
 	w.block.entries = w.block.entries[:0]
+	w.currentBlockSize = 8
 
 	return nil
 }

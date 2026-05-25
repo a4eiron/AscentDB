@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
-	"sync"
+	"runtime"
 	"time"
 
 	"github.com/a4eiron/ascentdb/internal/config"
@@ -26,42 +26,38 @@ func main() {
 	}
 	defer e.Close()
 
-	// putSomeStuff(e, 0, 300000)
+	var m1, m2 runtime.MemStats
+	runtime.ReadMemStats(&m1)
 
-	var wg sync.WaitGroup
+	// putSomeStuff(e, 0, 1200000)
+	getSomeStuff(e, 0, 1200000)
+	// snap := e.NewSnapshot()
 
-	snap := e.NewSnapshot()
+	// start := fmt.Sprintf("key-%020d", 120)
+	// end := fmt.Sprintf("key-%020d", 130)
 
-	for i := range 4 {
-		key := fmt.Sprintf("key-%020d", i)
-		e.Delete(key)
-	}
+	// iter := snap.Scan(start, end)
+	// log.Println("snapshot=======")
+	// for ; iter.Valid(); iter.Next() {
+	// 	fmt.Println(iter.Key().UserKey, string(iter.Value()))
+	// }
 
-	// wg.Go(func() {
-	// 	getSomeStuff(e, 0, 50000)
-	// })
-	// wg.Go(func() {
-	// getSomeStuff(e, 0, 300000)
-	// })
+	// e.Delete(fmt.Sprintf("key-%020d", 126))
+	// e.Delete(fmt.Sprintf("key-%020d", 127))
+	// e.Delete(fmt.Sprintf("key-%020d", 130))
 
-	start := fmt.Sprintf("key-%020d", 0)
-	end := fmt.Sprintf("key-%020d", 10)
+	// iter = e.Scan(start, end)
+	// log.Println("live=======")
+	// for ; iter.Valid(); iter.Next() {
+	// 	fmt.Println(iter.Key().UserKey, string(iter.Value()))
+	// }
 
-	iter := e.Scan(start, end)
+	runtime.ReadMemStats(&m2)
 
-	for ; iter.Valid(); iter.Next() {
-		fmt.Println(iter.Key().UserKey, string(iter.Value()))
-	}
-
-	log.Println("from the snapshot before delete")
-	iter = snap.Scan(start, end)
-
-	for ; iter.Valid(); iter.Next() {
-		fmt.Println(iter.Key().UserKey, string(iter.Value()))
-	}
-
-	getSomeStuff(e, 0, 300000)
-	wg.Wait()
+	fmt.Printf("Allocations during workload:\n")
+	fmt.Printf("  HeapAlloc:   %d → %d bytes\n", m1.HeapAlloc, m2.HeapAlloc)
+	fmt.Printf("  HeapObjects: %d → %d\n", m1.HeapObjects, m2.HeapObjects)
+	fmt.Printf("  Mallocs:     %d\n", m2.Mallocs-m1.Mallocs)
 
 }
 
@@ -85,7 +81,7 @@ func getSomeStuff(e *engine.Engine, start, end int) {
 		}
 	}
 
-	log.Println("==============================================================")
+	// log.Println("==============================================================")
 	log.Println("counter:", counter)
-	log.Println("==============================================================")
+	// log.Println("==============================================================")
 }

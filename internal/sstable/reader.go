@@ -110,7 +110,7 @@ func (r *TableReader) Close() error {
 func (r *TableReader) readBlock(offset uint64, size uint32) (*Block, error) {
 	if r.cache != nil {
 		if data, ok := r.cache.Get(r.fileNum, offset); ok {
-			return decodeBlock(data)
+			return data, nil
 		}
 	}
 
@@ -119,11 +119,14 @@ func (r *TableReader) readBlock(offset uint64, size uint32) (*Block, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	if r.cache != nil {
-		r.cache.Set(r.fileNum, offset, blockBytes)
+	block, err := decodeBlock(blockBytes)
+	if err != nil {
+		return nil, err
 	}
-	return decodeBlock(blockBytes)
+	if r.cache != nil {
+		r.cache.Set(r.fileNum, offset, block)
+	}
+	return block, nil
 }
 
 func (r *TableReader) findBlock(key record.InternalKey) *IndexEntry {
