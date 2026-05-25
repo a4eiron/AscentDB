@@ -21,7 +21,6 @@ type Skiplist struct {
 	maxLevel int
 	compare  func(a, b record.InternalKey) int
 	pool     *sync.Pool
-	// updateBuf []*SkiplistNode
 }
 
 func NewSkiplist(maxLevel uint, compare func(a, b record.InternalKey) int) *Skiplist {
@@ -30,7 +29,6 @@ func NewSkiplist(maxLevel uint, compare func(a, b record.InternalKey) int) *Skip
 		level:    1,
 		maxLevel: int(maxLevel),
 		compare:  compare,
-		// updateBuf: make([]*SkiplistNode, maxLevel),
 		pool: &sync.Pool{
 			New: func() any {
 				buf := make([]*SkiplistNode, maxLevel)
@@ -41,7 +39,6 @@ func NewSkiplist(maxLevel uint, compare func(a, b record.InternalKey) int) *Skip
 }
 
 func (sl *Skiplist) insert(key record.InternalKey, value []byte) {
-	// update := sl.updateBuf[:sl.maxLevel]
 	updatePtr := sl.pool.Get().(*[]*SkiplistNode)
 	update := *updatePtr
 	for i := range update {

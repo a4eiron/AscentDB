@@ -26,17 +26,41 @@ func main() {
 	}
 	defer e.Close()
 
-	// putSomeStuff(e, 0, 100000)
+	// putSomeStuff(e, 0, 300000)
 
 	var wg sync.WaitGroup
 
-	wg.Go(func() {
-		getSomeStuff(e, 0, 50000)
-	})
-	wg.Go(func() {
-		getSomeStuff(e, 0, 100000)
-	})
+	snap := e.NewSnapshot()
 
+	for i := range 4 {
+		key := fmt.Sprintf("key-%020d", i)
+		e.Delete(key)
+	}
+
+	// wg.Go(func() {
+	// 	getSomeStuff(e, 0, 50000)
+	// })
+	// wg.Go(func() {
+	// getSomeStuff(e, 0, 300000)
+	// })
+
+	start := fmt.Sprintf("key-%020d", 0)
+	end := fmt.Sprintf("key-%020d", 10)
+
+	iter := e.Scan(start, end)
+
+	for ; iter.Valid(); iter.Next() {
+		fmt.Println(iter.Key().UserKey, string(iter.Value()))
+	}
+
+	log.Println("from the snapshot before delete")
+	iter = snap.Scan(start, end)
+
+	for ; iter.Valid(); iter.Next() {
+		fmt.Println(iter.Key().UserKey, string(iter.Value()))
+	}
+
+	getSomeStuff(e, 0, 300000)
 	wg.Wait()
 
 }

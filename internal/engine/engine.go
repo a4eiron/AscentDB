@@ -23,7 +23,6 @@ type Engine struct {
 
 	mt   *memtable.Memtable
 	immt *memtable.Memtable
-	// immtQueue []*memtable.Memtable
 
 	tableCache sync.Map
 	blockCache *sstable.BlockCache

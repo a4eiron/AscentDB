@@ -6,17 +6,21 @@ import (
 )
 
 type ScanIterator struct {
-	iters   []internal.Iterator
-	end     string
-	current *record.Record
-	buf     record.Record
-	bufKey  record.InternalKey
+	iters      []internal.Iterator
+	end        string
+	seqNum     uint64
+	currentKey record.InternalKey
+	currentRec record.Record
+	current    *record.Record
+	heap       *internal.IteratorHeap
 }
 
-func NewScanIterator(iters []internal.Iterator, end string) *ScanIterator {
+func NewScanIterator(iters []internal.Iterator, end string, seqNum uint64) *ScanIterator {
 	s := &ScanIterator{
-		iters: iters,
-		end:   end,
+		iters:  iters,
+		end:    end,
+		seqNum: seqNum,
+		heap:   internal.NewIteratorHeap(iters),
 	}
 	s.advance()
 	return s
@@ -39,12 +43,6 @@ func (sIter *ScanIterator) Next() {
 		return
 	}
 
-	lastKey := sIter.current.UserKey
-	for _, iter := range sIter.iters {
-		for iter.Valid() && iter.Key().UserKey == lastKey {
-			iter.Next()
-		}
-	}
 	sIter.advance()
 }
 
@@ -52,85 +50,38 @@ func (s *ScanIterator) Seek(target record.InternalKey) {
 	for _, it := range s.iters {
 		it.Seek(target)
 	}
+	s.heap = internal.NewIteratorHeap(s.iters)
 	s.advance()
 }
 
 func (sIter *ScanIterator) advance() {
 
-	for {
-		best := -1
+	for !sIter.heap.Empty() {
+		userKey := sIter.heap.Peek().Record.UserKey
 
-		for i, iter := range sIter.iters {
-			if !iter.Valid() {
-				continue
-			}
-
-			if best == -1 {
-				best = i
-				continue
-			}
-
-			cmp := iter.Key().Compare(*sIter.iters[best].Key())
-			if cmp < 0 {
-				best = i
-			} else if cmp == 0 && iter.Key().SeqNum > sIter.iters[best].Key().SeqNum {
-				best = i
-			}
-		}
-
-		if best == -1 {
+		if userKey > sIter.end {
 			sIter.current = nil
 			return
 		}
+		var best *record.Record
+		for !sIter.heap.Empty() && sIter.heap.Peek().Record.UserKey == userKey {
+			item := sIter.heap.PopAndAdvance()
 
-		w := sIter.iters[best]
-		key := w.Key()
-
-		if key.UserKey > sIter.end {
-			sIter.current = nil
-			return
-		}
-
-		userKey := key.UserKey
-		bestSeq := key.SeqNum
-		bestType := key.Type
-		bestVal := w.Value()
-
-		for _, it := range sIter.iters {
-			if !it.Valid() || it.Key().UserKey != userKey {
+			if item.Record.SeqNum > sIter.seqNum {
 				continue
 			}
 
-			if it.Key().SeqNum > bestSeq {
-				bestSeq = it.Key().SeqNum
-				bestType = it.Key().Type
-				bestVal = it.Value()
+			if best == nil || item.Record.SeqNum > best.SeqNum {
+				best = item.Record
 			}
 		}
 
-		for _, it := range sIter.iters {
-			for it.Valid() && it.Key().UserKey == userKey {
-				it.Next()
-			}
-		}
-
-		if bestType == record.TypeDel {
+		if best == nil || best.IsTombstone() {
 			continue
 		}
 
-		sIter.bufKey = record.InternalKey{UserKey: userKey, SeqNum: bestSeq, Type: bestType}
-		sIter.buf = record.Record{InternalKey: &sIter.bufKey, Value: bestVal}
-		sIter.current = &sIter.buf
-		// sIter.current = &record.Record{
-		// 	InternalKey: &record.InternalKey{
-		// 		UserKey: userKey,
-		// 		SeqNum:  bestSeq,
-		// 		Type:    bestType,
-		// 	},
-		// 	Value: bestVal,
-		// }
-
+		sIter.current = best
 		return
 	}
-
+	sIter.current = nil
 }

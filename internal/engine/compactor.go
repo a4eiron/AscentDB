@@ -3,6 +3,7 @@ package engine
 import (
 	"log"
 	"os"
+	"sort"
 
 	"github.com/a4eiron/ascentdb/internal/compaction"
 	"github.com/a4eiron/ascentdb/internal/meta"
@@ -124,12 +125,9 @@ func (e *Engine) compactLevel(level int, inputs []*meta.TableMeta, outFileNum ui
 		}
 		os.Remove(e.tablePath(int(t.Level), t.FileNum))
 	}
-	// shouldCompact := len(e.vs.Current.Levels[0]) >= maxL0Files
 	e.mu.Unlock()
 	e.isCompacting.Store(false)
-	// if shouldCompact {
 	e.scheduleCompaction()
-	// }
 }
 
 func (e *Engine) writeCompactionOutput(
@@ -255,20 +253,14 @@ func (e *Engine) pickCompactionInputs(level int) []*meta.TableMeta {
 
 	// for L1+ whose Minkey > compactPointer[level]
 	pointer := e.compactPointer[level]
-	idx := 0
-	for i, t := range tables {
-		if t.MinKey.UserKey > pointer {
-			idx = i
-			break
-		}
-	}
+
+	idx := sort.Search(len(tables), func(i int) bool {
+		return tables[i].MinKey.UserKey > pointer
+	})
 
 	var selected []*meta.TableMeta
 	var pickedSize int64
-	targetSize := e.levelSize(level) - e.levelCapacity(level)
-	if targetSize < 0 {
-		targetSize = 0
-	}
+	targetSize := max(e.levelSize(level)-e.levelCapacity(level), 0)
 
 	for i := idx; i < len(tables); i++ {
 		selected = append(selected, tables[i])

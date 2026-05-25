@@ -9,7 +9,7 @@ import (
 
 type Snapshot struct {
 	seqNum uint64
-	e      *Engine
+	engine *Engine
 }
 
 type SnapshotList struct {
@@ -20,12 +20,16 @@ type SnapshotList struct {
 func (e *Engine) NewSnapshot() *Snapshot {
 	return &Snapshot{
 		seqNum: atomic.LoadUint64(&e.seqNum),
-		e:      e,
+		engine: e,
 	}
 }
 
 func (s *Snapshot) Get(key string) ([]byte, bool) {
-	return s.e.getAt(key, s.seqNum)
+	return s.engine.get(key, s.seqNum)
+}
+
+func (s *Snapshot) Scan(start, end string) *ScanIterator {
+	return s.engine.scan(start, end, s.seqNum)
 }
 
 func (sl *SnapshotList) add(seq uint64) {

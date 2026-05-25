@@ -15,22 +15,26 @@ func (e *Engine) Get(key string) ([]byte, bool) {
 	if key == "" {
 		return nil, false
 	}
-	return e.getAt(key, math.MaxUint64)
+	return e.get(key, math.MaxUint64)
 }
 
 func (e *Engine) Scan(start, end string) *ScanIterator {
+	return e.scan(start, end, math.MaxUint64)
+}
+
+func (e *Engine) scan(start, end string, seqNum uint64) *ScanIterator {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
 	var iters []internal.Iterator
 
 	mtIter := e.mt.Iterator()
-	mtIter.Seek(record.InternalKey{UserKey: start, SeqNum: math.MaxUint64})
+	mtIter.Seek(record.InternalKey{UserKey: start, SeqNum: seqNum})
 	iters = append(iters, mtIter)
 
 	if e.immt != nil {
 		immtIter := e.immt.Iterator()
-		immtIter.Seek(record.InternalKey{UserKey: start, SeqNum: math.MaxUint64})
+		immtIter.Seek(record.InternalKey{UserKey: start, SeqNum: seqNum})
 		iters = append(iters, immtIter)
 	}
 
@@ -46,15 +50,15 @@ func (e *Engine) Scan(start, end string) *ScanIterator {
 			}
 
 			iter := reader.Iterator()
-			iter.Seek(record.InternalKey{UserKey: start, SeqNum: math.MaxUint64})
+			iter.Seek(record.InternalKey{UserKey: start, SeqNum: seqNum})
 			iters = append(iters, iter)
 		}
 	}
 
-	return NewScanIterator(iters, end)
+	return NewScanIterator(iters, end, seqNum)
 }
 
-func (e *Engine) getAt(key string, seqNum uint64) ([]byte, bool) {
+func (e *Engine) get(key string, seqNum uint64) ([]byte, bool) {
 	lookupKey := record.InternalKey{
 		UserKey: key,
 		SeqNum:  seqNum,
@@ -89,11 +93,13 @@ func (e *Engine) getAt(key string, seqNum uint64) ([]byte, bool) {
 		}
 
 		rec, ok, err := reader.Get(lookupKey)
-		if err != nil || !ok {
+		if err != nil {
 			log.Println(err)
 			return
 		}
-
+		if !ok {
+			return
+		}
 		if best == nil || rec.SeqNum > best.SeqNum {
 			best = rec
 		}
@@ -122,6 +128,10 @@ func (e *Engine) getAt(key string, seqNum uint64) ([]byte, bool) {
 				continue
 			}
 			checkTable(tables[idx])
+
+			if best != nil {
+				break
+			}
 		}
 
 	}
