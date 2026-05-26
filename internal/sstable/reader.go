@@ -1,6 +1,7 @@
 package sstable
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -77,7 +78,7 @@ func Open(path string, cache *BlockCache) (*TableReader, error) {
 
 func (r *TableReader) Get(key record.InternalKey) (*record.Record, bool, error) {
 
-	if !r.filter.Contains(key.UserKey) {
+	if !r.filter.Contains(string(key.UserKey)) {
 		return nil, false, nil
 	}
 	entry := r.findBlock(key)
@@ -95,7 +96,7 @@ func (r *TableReader) Get(key record.InternalKey) (*record.Record, bool, error) 
 	})
 
 	if idx >= len(block.entries) ||
-		block.entries[idx].UserKey != key.UserKey {
+		!bytes.Equal(block.entries[idx].UserKey, key.UserKey) {
 		return nil, false, nil
 	}
 

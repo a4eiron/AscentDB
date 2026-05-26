@@ -1,10 +1,12 @@
 package meta
 
-func FindOverlapping(tables []*TableMeta, minKey, maxKey string) []*TableMeta {
+import "bytes"
+
+func FindOverlapping(tables []*TableMeta, minKey, maxKey []byte) []*TableMeta {
 	var out []*TableMeta
 
 	for _, t := range tables {
-		if t.MaxKey.UserKey < minKey || t.MinKey.UserKey > maxKey {
+		if bytes.Compare(t.MaxKey.UserKey, minKey) < 0 || bytes.Compare(t.MinKey.UserKey, maxKey) > 0 {
 			continue
 		}
 
@@ -14,20 +16,20 @@ func FindOverlapping(tables []*TableMeta, minKey, maxKey string) []*TableMeta {
 }
 
 // spans multiple tables
-func KeyRangeOf(tables []*TableMeta) (string, string) {
+func KeyRangeOf(tables []*TableMeta) ([]byte, []byte) {
 	if len(tables) == 0 {
-		return "", ""
+		return nil, nil
 	}
 
 	minKey := tables[0].MinKey.UserKey
 	maxKey := tables[0].MaxKey.UserKey
 
 	for _, t := range tables[1:] {
-		if t.MinKey.UserKey < minKey {
+		if bytes.Compare(t.MinKey.UserKey, minKey) < 0 {
 			minKey = t.MinKey.UserKey
 		}
 
-		if t.MaxKey.UserKey > maxKey {
+		if bytes.Compare(t.MaxKey.UserKey, maxKey) > 0 {
 			maxKey = t.MaxKey.UserKey
 		}
 	}

@@ -33,7 +33,7 @@ func (m *Memtable) Put(r record.Record) error {
 	return nil
 }
 
-func (m *Memtable) Get(userKey string, lookupKey record.InternalKey) ([]byte, bool, bool) {
+func (m *Memtable) Get(userKey []byte, lookupKey record.InternalKey) ([]byte, bool, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.list.search(userKey, lookupKey)

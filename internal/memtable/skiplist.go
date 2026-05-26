@@ -1,6 +1,7 @@
 package memtable
 
 import (
+	"bytes"
 	"math/rand"
 	"sync"
 
@@ -76,7 +77,7 @@ func (sl *Skiplist) insert(key record.InternalKey, value []byte) {
 
 }
 
-func (sl *Skiplist) search(userKey string, lookupKey record.InternalKey) ([]byte, bool, bool) {
+func (sl *Skiplist) search(userKey []byte, lookupKey record.InternalKey) ([]byte, bool, bool) {
 	curr := sl.head
 	for i := sl.level - 1; i >= 0; i-- {
 		for curr.forward[i] != nil && sl.compare(curr.forward[i].key, lookupKey) < 0 {
@@ -86,7 +87,7 @@ func (sl *Skiplist) search(userKey string, lookupKey record.InternalKey) ([]byte
 
 	curr = curr.forward[0]
 
-	if curr != nil && curr.key.UserKey == userKey {
+	if curr != nil && bytes.Equal(curr.key.UserKey, userKey) {
 		if curr.key.Type == record.TypeDel {
 			return nil, true, true
 		}

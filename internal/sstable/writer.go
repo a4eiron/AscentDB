@@ -39,7 +39,7 @@ func (w *TableWriter) Add(r record.Record) error {
 	w.currentBlockSize += int(r.Size()) // encoded record
 
 	w.estimatedSize += uint64(r.Size())
-	w.filter.Add(r.UserKey)
+	w.filter.Add(string(r.UserKey))
 
 	if int(w.currentBlockSize) >= w.blockSize {
 		return w.flushBlock()

@@ -33,7 +33,7 @@ type Engine struct {
 	flushWg   sync.WaitGroup
 
 	isCompacting   atomic.Bool
-	compactPointer [7]string
+	compactPointer [7][]byte
 
 	seqNum uint64 // for every put/delete
 

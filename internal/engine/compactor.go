@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"log"
 	"os"
 	"sort"
@@ -142,7 +143,7 @@ func (e *Engine) writeCompactionOutput(
 
 	var writer *sstable.TableWriter
 	var firstKey, lastKey record.InternalKey
-	var lastUserKey string
+	var lastUserKey []byte
 	first := true
 
 	openWriter := func() error {
@@ -185,7 +186,7 @@ func (e *Engine) writeCompactionOutput(
 		rec := merger.Record()
 
 		// skip older veresions of the same user key
-		if rec.UserKey == lastUserKey {
+		if bytes.Equal(rec.UserKey, lastUserKey) {
 			merger.Next()
 			continue
 		}
@@ -255,7 +256,7 @@ func (e *Engine) pickCompactionInputs(level int) []*meta.TableMeta {
 	pointer := e.compactPointer[level]
 
 	idx := sort.Search(len(tables), func(i int) bool {
-		return tables[i].MinKey.UserKey > pointer
+		return bytes.Compare(tables[i].MinKey.UserKey, pointer) > 0
 	})
 
 	var selected []*meta.TableMeta

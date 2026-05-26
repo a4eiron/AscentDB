@@ -1,6 +1,10 @@
 package record
 
-import "github.com/a4eiron/ascentdb/internal/codec"
+import (
+	"bytes"
+
+	"github.com/a4eiron/ascentdb/internal/codec"
+)
 
 type IKType uint8
 
@@ -8,7 +12,7 @@ const TypePut IKType = 1
 const TypeDel IKType = 0
 
 type InternalKey struct {
-	UserKey string
+	UserKey []byte
 	SeqNum  uint64
 	Type    IKType
 }
@@ -23,13 +27,17 @@ func (k *InternalKey) keyLen() uint32 {
 
 func (k InternalKey) Compare(other InternalKey) int {
 
-	if k.UserKey < other.UserKey {
-		return -1
+	if cmp := bytes.Compare(k.UserKey, other.UserKey); cmp != 0 {
+		return cmp
 	}
 
-	if k.UserKey > other.UserKey {
-		return 1
-	}
+	// if k.UserKey < other.UserKey {
+	// 	return -1
+	// }
+	//
+	// if k.UserKey > other.UserKey {
+	// 	return 1
+	// }
 
 	if k.SeqNum < other.SeqNum {
 		return 1
@@ -71,7 +79,7 @@ func DecodeInternalKey(buf *codec.Buffer) (InternalKey, error) {
 	}
 
 	return InternalKey{
-		UserKey: string(keyBytes),
+		UserKey: keyBytes,
 		SeqNum:  seq,
 		Type:    IKType(t),
 	}, nil

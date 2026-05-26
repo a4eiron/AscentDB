@@ -24,11 +24,11 @@ func (e *Engine) NewSnapshot() *Snapshot {
 	}
 }
 
-func (s *Snapshot) Get(key string) ([]byte, bool) {
+func (s *Snapshot) Get(key []byte) ([]byte, bool) {
 	return s.engine.get(key, s.seqNum)
 }
 
-func (s *Snapshot) Scan(start, end string) *ScanIterator {
+func (s *Snapshot) Scan(start, end []byte) *ScanIterator {
 	return s.engine.scan(start, end, s.seqNum)
 }
 

@@ -8,18 +8,18 @@ import (
 	"github.com/a4eiron/ascentdb/internal/record"
 )
 
-func (e *Engine) Put(key string, value []byte) error {
-	if key == "" || value == nil {
+func (e *Engine) Put(key, value []byte) error {
+	if key == nil || value == nil {
 		return fmt.Errorf("cannot put with empty key or value")
 	}
 	return e.write(key, value, record.TypePut)
 }
 
-func (e *Engine) Delete(key string) {
+func (e *Engine) Delete(key []byte) {
 	e.write(key, nil, record.TypeDel)
 }
 
-func (e *Engine) write(key string, value []byte, typ record.IKType) error {
+func (e *Engine) write(key, value []byte, typ record.IKType) error {
 	seq := atomic.AddUint64(&e.seqNum, 1)
 	r := record.Record{
 		InternalKey: record.InternalKey{

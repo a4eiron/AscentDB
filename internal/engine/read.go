@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"log"
 	"math"
 	"sort"
@@ -11,18 +12,18 @@ import (
 	"github.com/a4eiron/ascentdb/internal/sstable"
 )
 
-func (e *Engine) Get(key string) ([]byte, bool) {
-	if key == "" {
+func (e *Engine) Get(key []byte) ([]byte, bool) {
+	if key == nil {
 		return nil, false
 	}
 	return e.get(key, math.MaxUint64)
 }
 
-func (e *Engine) Scan(start, end string) *ScanIterator {
+func (e *Engine) Scan(start, end []byte) *ScanIterator {
 	return e.scan(start, end, math.MaxUint64)
 }
 
-func (e *Engine) scan(start, end string, seqNum uint64) *ScanIterator {
+func (e *Engine) scan(start, end []byte, seqNum uint64) *ScanIterator {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
@@ -40,7 +41,7 @@ func (e *Engine) scan(start, end string, seqNum uint64) *ScanIterator {
 
 	for _, tables := range e.vs.Current.Levels {
 		for _, t := range tables {
-			if t.MaxKey.UserKey < start || t.MinKey.UserKey > end {
+			if bytes.Compare(t.MaxKey.UserKey, start) < 0 || bytes.Compare(t.MinKey.UserKey, end) > 0 {
 				continue
 			}
 
@@ -58,7 +59,7 @@ func (e *Engine) scan(start, end string, seqNum uint64) *ScanIterator {
 	return NewScanIterator(iters, end, seqNum)
 }
 
-func (e *Engine) get(key string, seqNum uint64) ([]byte, bool) {
+func (e *Engine) get(key []byte, seqNum uint64) ([]byte, bool) {
 	lookupKey := record.InternalKey{
 		UserKey: key,
 		SeqNum:  seqNum,
@@ -110,7 +111,7 @@ func (e *Engine) get(key string, seqNum uint64) ([]byte, bool) {
 		if level == 0 {
 			for i := len(tables) - 1; i >= 0; i-- {
 				t := tables[i]
-				if key < t.MinKey.UserKey || key > t.MaxKey.UserKey {
+				if bytes.Compare(key, t.MinKey.UserKey) < 0 || bytes.Compare(key, t.MaxKey.UserKey) > 0 {
 					continue
 				}
 				checkTable(t)

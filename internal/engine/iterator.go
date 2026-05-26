@@ -1,20 +1,22 @@
 package engine
 
 import (
+	"bytes"
+
 	"github.com/a4eiron/ascentdb/internal"
 	"github.com/a4eiron/ascentdb/internal/record"
 )
 
 type ScanIterator struct {
 	iters      []internal.Iterator
-	end        string
+	end        []byte
 	seqNum     uint64
 	currentRec record.Record
 	current    *record.Record
 	heap       *internal.IteratorHeap
 }
 
-func NewScanIterator(iters []internal.Iterator, end string, seqNum uint64) *ScanIterator {
+func NewScanIterator(iters []internal.Iterator, end []byte, seqNum uint64) *ScanIterator {
 	s := &ScanIterator{
 		iters:  iters,
 		end:    end,
@@ -58,14 +60,14 @@ func (sIter *ScanIterator) advance() {
 	for !sIter.heap.Empty() {
 		userKey := sIter.heap.Peek().Record.UserKey
 
-		if userKey > sIter.end {
+		if bytes.Compare(userKey, sIter.end) > 0 {
 			sIter.current = nil
 			return
 		}
 		var best record.Record
 		found := false
 
-		for !sIter.heap.Empty() && sIter.heap.Peek().Record.UserKey == userKey {
+		for !sIter.heap.Empty() && bytes.Equal(sIter.heap.Peek().Record.UserKey, userKey) {
 			rec := sIter.heap.PopAndAdvance()
 
 			if rec.SeqNum > sIter.seqNum {
