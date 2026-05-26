@@ -24,18 +24,18 @@ type Engine struct {
 	mt   *memtable.Memtable
 	immt *memtable.Memtable
 
+	vs     *meta.VersionSet
+	seqNum uint64
+
 	tableCache sync.Map
 	blockCache *sstable.BlockCache
 
-	vs *meta.VersionSet
-
 	flushChan chan *flushTask
 	flushWg   sync.WaitGroup
+	compactWg sync.WaitGroup
 
 	isCompacting   atomic.Bool
 	compactPointer [7][]byte
-
-	seqNum uint64 // for every put/delete
 
 	snapshots SnapshotList
 
@@ -43,27 +43,26 @@ type Engine struct {
 }
 
 func New(opts *config.Options) (*Engine, error) {
-
-	err := os.MkdirAll(filepath.Join(opts.DataDir, "tables"), 0755)
-	if err != nil {
+	if err := os.MkdirAll(filepath.Join(opts.DataDir, "tables"), 0755); err != nil {
 		return nil, err
 	}
 
-	err = os.MkdirAll(filepath.Join(opts.DataDir, "wal"), 0755)
-	if err != nil {
+	if err := os.MkdirAll(filepath.Join(opts.DataDir, "wal"), 0755); err != nil {
 		return nil, err
 	}
 
-	for i := range 7 {
-		if err := os.MkdirAll(filepath.Join(opts.DataDir, "tables", fmt.Sprintf("L%d", i)), 0755); err != nil {
+	for level := range 7 {
+		dir := filepath.Join(opts.DataDir, "tables", fmt.Sprintf("L%d", level))
+		if err := os.MkdirAll(dir, 0755); err != nil {
 			return nil, err
 		}
 	}
 
 	e := &Engine{
-		opts:      opts,
-		mt:        memtable.New(uint64(opts.MemtableSize)),
-		flushChan: make(chan *flushTask, 6),
+		opts:       opts,
+		mt:         memtable.New(uint64(opts.MemtableSize)),
+		flushChan:  make(chan *flushTask, 6),
+		blockCache: sstable.NewBlockCache(1024),
 	}
 
 	vs, err := meta.Open(opts.DataDir)
@@ -72,18 +71,20 @@ func New(opts *config.Options) (*Engine, error) {
 	}
 
 	e.vs = vs
-	atomic.StoreUint64(&e.seqNum, e.vs.LastSequenceNum())
+	atomic.StoreUint64(&e.seqNum, vs.LastSequenceNum())
 
-	e.blockCache = sstable.NewBlockCache(1024)
+	if opts.CrashRecovery {
+		walPath := filepath.Join(
+			opts.DataDir,
+			"wal",
+			fmt.Sprintf("wal-%06d.log", vs.LogNumber()),
+		)
 
-	if e.opts.CrashRecovery {
-		walPath := filepath.Join(opts.DataDir, "wal", fmt.Sprintf("wal-%06d.log", e.vs.LogNumber()))
-		wal, err := wal.Open(walPath, e.opts.WALSyncInterval)
+		e.wal, err = wal.Open(walPath, opts.WALSyncInterval)
 		if err != nil {
 			log.Println(err)
 			return nil, err
 		}
-		e.wal = wal
 
 		if err := e.recover(); err != nil {
 			log.Println(err)
@@ -91,8 +92,8 @@ func New(opts *config.Options) (*Engine, error) {
 		}
 	}
 
-	// background flusher
 	go e.runFlusher()
+
 	return e, nil
 }
 
@@ -101,6 +102,7 @@ func (e *Engine) Sync() error {
 		e.mu.Lock()
 		err := e.wal.Sync()
 		e.mu.Unlock()
+
 		if err != nil {
 			return err
 		}
@@ -144,12 +146,11 @@ func (e *Engine) Close() error {
 	}
 
 	e.flushWg.Wait()
-
 	close(e.flushChan)
+	e.compactWg.Wait()
 
-	e.tableCache.Range(func(key, value any) bool {
-		err := value.(*sstable.TableReader).Close()
-		return err == nil
+	e.tableCache.Range(func(_, value any) bool {
+		return value.(*sstable.TableReader).Close() == nil
 	})
 
 	if e.wal != nil {

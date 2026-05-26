@@ -1,7 +1,8 @@
 package sstable
 
 import (
-	"github.com/a4eiron/ascentdb/internal/codec"
+	"encoding/binary"
+
 	"github.com/a4eiron/ascentdb/internal/record"
 )
 
@@ -9,78 +10,64 @@ type Block struct {
 	entries []record.Record
 }
 
+// [block_size(4)][num_entries(4)][[entry_size(4)][entry]...]
 func encodeBlock(b *Block, size int) []byte {
+	buf := make([]byte, size)
+	off := 0
 
-	buf := codec.NewBuffer(size)
+	binary.LittleEndian.PutUint32(buf[off:], uint32(size))
+	off += 4
 
-	// blocksize
-	buf.WriteUint32(uint32(size))
+	binary.LittleEndian.PutUint32(buf[off:], uint32(len(b.entries)))
+	off += 4
 
-	// num_entries
-	buf.WriteUint32(uint32(len(b.entries)))
-
-	// entries
 	for _, entry := range b.entries {
-		buf.WriteUint32(entry.Size())
 		entryBytes := record.EncodeRecord(entry)
-		buf.WriteBytes(entryBytes)
+		binary.LittleEndian.PutUint32(buf[off:], uint32(len(entryBytes)))
+		off += 4
+		copy(buf[off:], entryBytes)
+		off += len(entryBytes)
 	}
 
-	return buf.Bytes()
-
+	return buf
 }
 
 func decodeBlock(b []byte) (*Block, error) {
-
-	buf := codec.NewBufferFromBytes(b)
-	_, err := buf.ReadUint32()
-	if err != nil {
-		return nil, err
+	if len(b) < 8 {
+		return nil, record.ErrCorruptRecord
 	}
+	off := 0
+	off += 4
+	numEntries := int(binary.LittleEndian.Uint32(b[off:]))
+	off += 4
 
-	numEntries, err := buf.ReadUint32()
-	if err != nil {
-		return nil, err
-	}
-
-	block := &Block{
-		entries: make([]record.Record, numEntries),
-	}
+	block := &Block{entries: make([]record.Record, numEntries)}
 
 	for i := range numEntries {
-		entrySize, err := buf.ReadUint32()
+		if off+4 > len(b) {
+			return nil, record.ErrCorruptRecord
+		}
+		entrySize := int(binary.LittleEndian.Uint32(b[off:]))
+		off += 4
+
+		if off+entrySize > len(b) {
+			return nil, record.ErrCorruptRecord
+		}
+		rec, err := record.DecodeRecord(b[off : off+entrySize])
 		if err != nil {
 			return nil, err
 		}
-
-		entryBytes, err := buf.ReadBytes(int(entrySize))
-		if err != nil {
-			return nil, err
-		}
-
-		rec, err := record.DecodeRecord(entryBytes)
-		if err != nil {
-			return nil, err
-		}
-
 		block.entries[i] = rec
+		off += entrySize
 	}
 
 	return block, nil
 }
 
-// [block_size(4)]
-// [num_entries(4)]
-// [[entry_size]entries(variant)...]
-func blockSize(b Block) int {
-	var size int
-	size += 4 // for the entire blocksize
-	size += 4 // for the no.of entries in the block
-	size += len(b.entries) * 4
-
-	for _, entry := range b.entries {
-		size += int(entry.Size())
-	}
-
-	return size
-}
+// func blockSize(b Block) int {
+// 	size := 4 + 4 + len(b.entries)*4
+// 	for _, entry := range b.entries {
+// 		size += int(entry.Size())
+// 	}
+// 	return size
+// }

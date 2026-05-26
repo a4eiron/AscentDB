@@ -1,77 +1,71 @@
 package sstable
 
 import (
+	"encoding/binary"
 	"errors"
-
-	"github.com/a4eiron/ascentdb/internal/codec"
 )
 
 const Magic uint64 = 0xdbb5a3c4f1e2d678
-
 const FooterSize int = 8 + 4 + 8 + 4 + 8
 
 type Footer struct {
-	IndexOffset uint64
-	IndexSize   uint32
-
+	IndexOffset  uint64
+	IndexSize    uint32
 	FilterOffset uint64
 	FilterSize   uint32
-
-	Magic uint64
+	Magic        uint64
 }
 
 func encodeFooter(f Footer) []byte {
-	buf := codec.NewBuffer(FooterSize)
+	buf := make([]byte, FooterSize)
 
-	buf.WriteUint64(f.IndexOffset)
-	buf.WriteUint32(f.IndexSize)
-	buf.WriteUint64(f.FilterOffset)
-	buf.WriteUint32(f.FilterSize)
-	buf.WriteUint64(f.Magic)
+	off := 0
 
-	return buf.Bytes()
+	binary.LittleEndian.PutUint64(buf[off:], f.IndexOffset)
+	off += 8
+
+	binary.LittleEndian.PutUint32(buf[off:], f.IndexSize)
+	off += 4
+
+	binary.LittleEndian.PutUint64(buf[off:], f.FilterOffset)
+	off += 8
+
+	binary.LittleEndian.PutUint32(buf[off:], f.FilterSize)
+	off += 4
+
+	binary.LittleEndian.PutUint64(buf[off:], f.Magic)
+	return buf
 }
 
 func decodeFooter(b []byte) (*Footer, error) {
-
-	buf := codec.NewBufferFromBytes(b)
-
-	indexOffset, err := buf.ReadUint64()
-	if err != nil {
-		return nil, err
+	if len(b) < FooterSize {
+		return nil, errors.New("footer: buffer too small")
 	}
 
-	indexSize, err := buf.ReadUint32()
-	if err != nil {
-		return nil, err
-	}
+	off := 0
 
-	filterOffset, err := buf.ReadUint64()
-	if err != nil {
-		return nil, err
-	}
+	indexOffset := binary.LittleEndian.Uint64(b[off:])
+	off += 8
 
-	filterSize, err := buf.ReadUint32()
-	if err != nil {
-		return nil, err
-	}
+	indexSize := binary.LittleEndian.Uint32(b[off:])
+	off += 4
 
-	magic, err := buf.ReadUint64()
-	if err != nil {
-		return nil, err
-	}
+	filterOffset := binary.LittleEndian.Uint64(b[off:])
+	off += 8
 
+	filterSize := binary.LittleEndian.Uint32(b[off:])
+	off += 4
+
+	magic := binary.LittleEndian.Uint64(b[off:])
 	if magic != Magic {
 		return nil, errors.New("footer: corrupt sstable")
 	}
 
-	f := &Footer{
+	return &Footer{
 		IndexOffset:  indexOffset,
 		IndexSize:    indexSize,
 		FilterOffset: filterOffset,
 		FilterSize:   filterSize,
 		Magic:        magic,
-	}
-
-	return f, nil
+	}, nil
 }

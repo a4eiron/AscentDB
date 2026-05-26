@@ -1,7 +1,8 @@
 package sstable
 
 import (
-	"github.com/a4eiron/ascentdb/internal/codec"
+	"encoding/binary"
+
 	"github.com/a4eiron/ascentdb/internal/record"
 )
 
@@ -15,101 +16,94 @@ type IndexEntry struct {
 	BlockSize    uint32
 }
 
-// [num_entries(4)]
-// [entries(variant)...]
+// [num_entries(4)][[entry_len(4)][entry]...]
 func encodeIndexBlock(b *IndexBlock) []byte {
-	var size int
-
-	size += 4 // num_entries
-
-	encodedEntries := make([][]byte, 0, len(b.entries))
-
-	for _, entry := range b.entries {
-		encodedEntry := encodeIndexEntry(&entry)
-		encodedEntries = append(encodedEntries, encodedEntry)
-		size += 4
-		size += len(encodedEntry)
+	encoded := make([][]byte, len(b.entries))
+	total := 4
+	for i, entry := range b.entries {
+		encoded[i] = encodeIndexEntry(&entry)
+		total += 4 + len(encoded[i])
 	}
 
-	buf := codec.NewBuffer(size)
+	buf := make([]byte, total)
+	off := 0
+	binary.LittleEndian.PutUint32(buf[off:], uint32(len(b.entries)))
+	off += 4
 
-	buf.WriteUint32(uint32(len(b.entries)))
-	for _, eb := range encodedEntries {
-		buf.WriteUint32(uint32(len(eb)))
-		buf.WriteBytes(eb)
+	for _, eb := range encoded {
+		binary.LittleEndian.PutUint32(buf[off:], uint32(len(eb)))
+		off += 4
+		copy(buf[off:], eb)
+		off += len(eb)
 	}
-
-	return buf.Bytes()
+	return buf
 }
 
 func decodeIndexBlock(b []byte) (*IndexBlock, error) {
-	buf := codec.NewBufferFromBytes(b)
-	numEntries, err := buf.ReadUint32()
-	if err != nil {
-		return nil, err
+	if len(b) < 4 {
+		return nil, record.ErrCorruptRecord
 	}
+	off := 0
+	numEntries := int(binary.LittleEndian.Uint32(b[off:]))
+	off += 4
 
 	block := &IndexBlock{entries: make([]IndexEntry, 0, numEntries)}
 
 	for range numEntries {
-		entrySize, err := buf.ReadUint32()
+		if off+4 > len(b) {
+			return nil, record.ErrCorruptRecord
+		}
+		entrySize := int(binary.LittleEndian.Uint32(b[off:]))
+		off += 4
+
+		if off+entrySize > len(b) {
+			return nil, record.ErrCorruptRecord
+		}
+		entry, err := decodeIndexEntry(b[off : off+entrySize])
 		if err != nil {
 			return nil, err
 		}
-
-		entryBytes, err := buf.ReadBytes(int(entrySize))
-		if err != nil {
-			return nil, err
-		}
-
-		entry, err := decodeIndexEntry(entryBytes)
-		if err != nil {
-			return nil, err
-		}
-
-		block.entries = append(block.entries, *entry)
+		block.entries = append(block.entries, entry)
+		off += entrySize
 	}
 
 	return block, nil
 }
 
+// [block_offset(8)][block_size(4)][separator_key...]
 func encodeIndexEntry(e *IndexEntry) []byte {
-	size := int(e.SeparatorKey.KeySize()) + 8 + 4
+	keySize := int(e.SeparatorKey.KeySize())
+	buf := make([]byte, 8+4+keySize)
+	off := 0
 
-	buf := codec.NewBuffer(size)
+	binary.LittleEndian.PutUint64(buf[off:], e.BlockOffset)
+	off += 8
+	binary.LittleEndian.PutUint32(buf[off:], e.BlockSize)
+	off += 4
+	record.EncodeInternalKey(buf, off, e.SeparatorKey)
 
-	buf.WriteUint64(e.BlockOffset)
-	buf.WriteUint32(e.BlockSize)
-	record.EncodeInternalKey(buf, e.SeparatorKey)
-
-	return buf.Bytes()
+	return buf
 }
 
-func decodeIndexEntry(b []byte) (*IndexEntry, error) {
+func decodeIndexEntry(b []byte) (IndexEntry, error) {
+	if len(b) < 12 {
+		return IndexEntry{}, record.ErrCorruptRecord
+	}
+	off := 0
 
-	buf := codec.NewBufferFromBytes(b)
+	blockOffset := binary.LittleEndian.Uint64(b[off:])
+	off += 8
+	blockSize := binary.LittleEndian.Uint32(b[off:])
+	off += 4
 
-	blockOffset, err := buf.ReadUint64()
+	sepKey, _, err := record.DecodeInternalKey(b, off)
 	if err != nil {
-		return nil, err
+		return IndexEntry{}, err
 	}
 
-	blockSize, err := buf.ReadUint32()
-	if err != nil {
-		return nil, err
-	}
-
-	separatorKey, err := record.DecodeInternalKey(buf)
-	if err != nil {
-		return nil, err
-	}
-
-	entry := &IndexEntry{
+	return IndexEntry{
 		BlockOffset:  blockOffset,
 		BlockSize:    blockSize,
-		SeparatorKey: separatorKey,
-	}
-
-	return entry, nil
-
+		SeparatorKey: sepKey,
+	}, nil
 }

@@ -1,6 +1,13 @@
 package record
 
-import "github.com/a4eiron/ascentdb/internal/codec"
+import (
+	"encoding/binary"
+	"errors"
+)
+
+var (
+	ErrCorruptRecord = errors.New("record: corrupt record")
+)
 
 type Record struct {
 	InternalKey
@@ -24,36 +31,85 @@ func (r *Record) ValueLen() uint32 {
 }
 
 func EncodeRecord(r Record) []byte {
-	payload := codec.NewBuffer(int(r.Size()))
+	buf := make([]byte, r.Size())
+	EncodeRecordInto(buf, r)
+	return buf
+}
 
-	EncodeInternalKey(payload, r.InternalKey)
-	payload.WriteUint32(r.ValueLen())
-	payload.WriteBytes(r.Value)
+func EncodeRecordInto(dst []byte, r Record) int {
+	off := 0
 
-	return payload.Bytes()
+	binary.LittleEndian.PutUint32(dst[off:off+4], uint32(len(r.UserKey)))
+	off += 4
+
+	copy(dst[off:], r.UserKey)
+	off += len(r.UserKey)
+
+	binary.LittleEndian.PutUint64(dst[off:off+8], r.SeqNum)
+	off += 8
+
+	dst[off] = byte(r.Type)
+	off++
+
+	binary.LittleEndian.PutUint32(dst[off:off+4], uint32(len(r.Value)))
+	off += 4
+
+	copy(dst[off:], r.Value)
+	off += len(r.Value)
+
+	return off
 }
 
 func DecodeRecord(data []byte) (Record, error) {
-	buf := codec.NewBufferFromBytes(data)
+	var off int
 
-	internalKey, err := DecodeInternalKey(buf)
-	if err != nil {
-		return Record{}, err
-	}
-	valLen, err := buf.ReadUint32()
-	if err != nil {
-		return Record{}, err
+	if len(data) < 4 {
+		return Record{}, ErrCorruptRecord
 	}
 
-	valBytes, err := buf.ReadBytes(int(valLen))
-	if err != nil {
-		return Record{}, err
+	keyLen := int(binary.LittleEndian.Uint32(data[off:]))
+	off += 4
+
+	if off+keyLen > len(data) {
+		return Record{}, ErrCorruptRecord
 	}
 
-	r := Record{
-		InternalKey: internalKey,
-		Value:       valBytes,
+	userKey := data[off : off+keyLen]
+	off += keyLen
+
+	if off+8 > len(data) {
+		return Record{}, ErrCorruptRecord
 	}
 
-	return r, nil
+	seq := binary.LittleEndian.Uint64(data[off:])
+	off += 8
+
+	if off+1 > len(data) {
+		return Record{}, ErrCorruptRecord
+	}
+
+	typ := IKType(data[off])
+	off++
+
+	if off+4 > len(data) {
+		return Record{}, ErrCorruptRecord
+	}
+
+	valLen := int(binary.LittleEndian.Uint32(data[off:]))
+	off += 4
+
+	if off+valLen > len(data) {
+		return Record{}, ErrCorruptRecord
+	}
+
+	value := data[off : off+valLen]
+
+	return Record{
+		InternalKey: InternalKey{
+			UserKey: userKey,
+			SeqNum:  seq,
+			Type:    typ,
+		},
+		Value: value,
+	}, nil
 }

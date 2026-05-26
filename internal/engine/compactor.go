@@ -14,13 +14,12 @@ import (
 
 const (
 	maxL0Files      = 4
-	maxBytesBase    = 10 * 1024 * 1024 // L1 cap
-	levelMultiplier = 10               // each level is 10x larger
-	maxSSTableSize  = 2 * 1024 * 1024  // 2 MiB
+	maxBytesBase    = 10 * 1024 * 1024
+	levelMultiplier = 10
+	maxSSTableSize  = 4 * 1024 * 1024
 )
 
 func (e *Engine) scheduleCompaction() {
-
 	if !e.isCompacting.CompareAndSwap(false, true) {
 		return
 	}
@@ -28,32 +27,42 @@ func (e *Engine) scheduleCompaction() {
 	if len(e.vs.Current.Levels[0]) >= maxL0Files {
 		inputs := e.pickCompactionInputs(0)
 		outFileNum := e.vs.NextFileNum()
-		go e.compactLevel(0, inputs, outFileNum)
+
+		e.compactWg.Go(func() {
+			e.compactLevel(0, inputs, outFileNum)
+		})
+
 		return
 	}
 
 	for level := 1; level < len(e.vs.Current.Levels)-1; level++ {
-		if e.levelSize(level) > e.levelCapacity(level) {
-			inputs := e.pickCompactionInputs(level)
-			outFileNum := e.vs.NextFileNum()
-			go e.compactLevel(level, inputs, outFileNum)
-			return
+		if e.levelSize(level) <= e.levelCapacity(level) {
+			continue
 		}
+
+		inputs := e.pickCompactionInputs(level)
+		outFileNum := e.vs.NextFileNum()
+
+		e.compactWg.Go(func() {
+			e.compactLevel(level, inputs, outFileNum)
+		})
+		return
 	}
 
 	e.isCompacting.Store(false)
 }
 
-func (e *Engine) compactLevel(level int, inputs []*meta.TableMeta, outFileNum uint64) {
+func (e *Engine) compactLevel(
+	level int,
+	inputs []*meta.TableMeta,
+	outFileNum uint64,
+) {
 	nextLevel := level + 1
 
-	// key range covered by inputs
 	minKey, maxKey := meta.KeyRangeOf(inputs)
 
-	// find overlaping files in the next level
 	e.mu.Lock()
 	nextLevelFiles := append([]*meta.TableMeta(nil), e.vs.Current.Levels[nextLevel]...)
-
 	if level > 0 && len(inputs) > 0 {
 		e.compactPointer[level] = inputs[len(inputs)-1].MaxKey.UserKey
 	}
@@ -61,11 +70,10 @@ func (e *Engine) compactLevel(level int, inputs []*meta.TableMeta, outFileNum ui
 
 	overlapping := meta.FindOverlapping(nextLevelFiles, minKey, maxKey)
 
-	// open iterators for all input files
 	all := append(inputs, overlapping...)
 	iters := make([]*sstable.SSTableIterator, 0, len(all))
-
 	readers := make([]*sstable.TableReader, 0, len(all))
+
 	for _, t := range all {
 		path := e.tablePath(int(t.Level), t.FileNum)
 		reader, err := sstable.Open(path, e.blockCache)
@@ -87,7 +95,6 @@ func (e *Engine) compactLevel(level int, inputs []*meta.TableMeta, outFileNum ui
 		for _, r := range readers {
 			r.Close()
 		}
-
 		e.isCompacting.Store(false)
 		return
 	}
@@ -127,6 +134,7 @@ func (e *Engine) compactLevel(level int, inputs []*meta.TableMeta, outFileNum ui
 		os.Remove(e.tablePath(int(t.Level), t.FileNum))
 	}
 	e.mu.Unlock()
+
 	e.isCompacting.Store(false)
 	e.scheduleCompaction()
 }
@@ -137,7 +145,6 @@ func (e *Engine) writeCompactionOutput(
 	iters []*sstable.SSTableIterator,
 	isBottomLevel bool,
 ) ([]*meta.TableMeta, error) {
-
 	merger := compaction.NewMergeIterator(iters)
 	var outTables []*meta.TableMeta
 
@@ -158,7 +165,6 @@ func (e *Engine) writeCompactionOutput(
 		if writer == nil {
 			return nil
 		}
-		// size, _ := writer.Size()
 		size, err := writer.Close()
 		if err != nil {
 			return err
@@ -185,16 +191,13 @@ func (e *Engine) writeCompactionOutput(
 	for merger.Valid() {
 		rec := merger.Record()
 
-		// skip older veresions of the same user key
 		if bytes.Equal(rec.UserKey, lastUserKey) {
 			merger.Next()
 			continue
 		}
 		lastUserKey = rec.UserKey
 
-		// drop tombstones at the bottom level
-		if rec.Type == record.TypeDel &&
-			isBottomLevel && rec.SeqNum < oldestSnap {
+		if rec.Type == record.TypeDel && isBottomLevel && rec.SeqNum < oldestSnap {
 			merger.Next()
 			continue
 		}
@@ -215,7 +218,7 @@ func (e *Engine) writeCompactionOutput(
 				return nil, err
 			}
 
-			if size >= maxSSTableSize && merger.Valid() {
+			if merger.Valid() {
 				if err := openWriter(); err != nil {
 					return nil, err
 				}
@@ -240,21 +243,17 @@ func (e *Engine) writeCompactionOutput(
 	return outTables, nil
 }
 
-// pick one file from a given level
 func (e *Engine) pickCompactionInputs(level int) []*meta.TableMeta {
 	tables := e.vs.Current.Levels[level]
 	if len(tables) == 0 {
 		return nil
 	}
 
-	// L0 files can overlap with each other, so talking all of them
 	if level == 0 {
 		return tables
 	}
 
-	// for L1+ whose Minkey > compactPointer[level]
 	pointer := e.compactPointer[level]
-
 	idx := sort.Search(len(tables), func(i int) bool {
 		return bytes.Compare(tables[i].MinKey.UserKey, pointer) > 0
 	})
@@ -266,7 +265,6 @@ func (e *Engine) pickCompactionInputs(level int) []*meta.TableMeta {
 	for i := idx; i < len(tables); i++ {
 		selected = append(selected, tables[i])
 		pickedSize += int64(tables[i].FileSize)
-
 		if pickedSize >= targetSize {
 			break
 		}

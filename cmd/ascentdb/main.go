@@ -29,28 +29,28 @@ func main() {
 	var m1, m2 runtime.MemStats
 	runtime.ReadMemStats(&m1)
 
-	// putSomeStuff(e, 1000000, 1200000)
+	putSomeStuff(e, 0, 1200000)
 	getSomeStuff(e, 0, 1200000)
-	// snap := e.NewSnapshot()
+	snap := e.NewSnapshot()
 
-	// start := fmt.Sprintf("key-%020d", 120)
-	// end := fmt.Sprintf("key-%020d", 130)
+	start := fmt.Sprintf("key-%020d", 120)
+	end := fmt.Sprintf("key-%020d", 130)
 
-	// iter := snap.Scan([]byte(start), []byte(end))
-	// log.Println("snapshot=======")
-	// for ; iter.Valid(); iter.Next() {
-	// 	fmt.Println(string(iter.Key().UserKey), string(iter.Value()))
-	// }
+	iter := snap.Scan([]byte(start), []byte(end))
+	log.Println("snapshot=======")
+	for ; iter.Valid(); iter.Next() {
+		fmt.Println(string(iter.Key().UserKey), string(iter.Value()))
+	}
 
-	// e.Delete(fmt.Appendf(nil, "key-%020d", 126))
-	// e.Delete(fmt.Appendf(nil, "key-%020d", 127))
-	// e.Delete(fmt.Appendf(nil, "key-%020d", 130))
+	e.Delete(fmt.Appendf(nil, "key-%020d", 126))
+	e.Delete(fmt.Appendf(nil, "key-%020d", 127))
+	e.Delete(fmt.Appendf(nil, "key-%020d", 130))
 
-	// iter := e.Scan([]byte(start), []byte(end))
-	// log.Println("live=======")
-	// for ; iter.Valid(); iter.Next() {
-	// 	fmt.Println(string(iter.Key().UserKey), string(iter.Value()))
-	// }
+	iter = e.Scan([]byte(start), []byte(end))
+	log.Println("live=======")
+	for ; iter.Valid(); iter.Next() {
+		fmt.Println(string(iter.Key().UserKey), string(iter.Value()))
+	}
 
 	runtime.ReadMemStats(&m2)
 
@@ -73,9 +73,9 @@ func getSomeStuff(e *engine.Engine, start, end int) {
 	counter := 0
 	for i := start; i < end; i++ {
 		key := fmt.Sprintf("key-%020d", i)
-		if val, ok := e.Get([]byte(key)); ok {
+		if _, ok := e.Get([]byte(key)); ok {
 			counter++
-			log.Println(string(val))
+			// log.Println(string(val))
 		} else {
 			log.Println("MISSED IT", key)
 		}

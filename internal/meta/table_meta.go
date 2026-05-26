@@ -1,7 +1,8 @@
 package meta
 
 import (
-	"github.com/a4eiron/ascentdb/internal/codec"
+	"encoding/binary"
+
 	"github.com/a4eiron/ascentdb/internal/record"
 )
 
@@ -9,9 +10,8 @@ type TableMeta struct {
 	FileNum  uint64
 	FileSize uint64
 	Level    uint32
-
-	MinKey record.InternalKey
-	MaxKey record.InternalKey
+	MinKey   record.InternalKey
+	MaxKey   record.InternalKey
 }
 
 type DeletedTableMeta struct {
@@ -19,107 +19,91 @@ type DeletedTableMeta struct {
 	FileNum uint64
 }
 
+// [total_size(4)][file_num(8)][file_size(8)][level(4)]
+// [min_key_size(4)][min_key...][max_key_size(4)][max_key...]
 func encodeTableMeta(m *TableMeta) []byte {
+	minKeySize := int(m.MinKey.KeySize())
+	maxKeySize := int(m.MaxKey.KeySize())
+	totalSize := TableMetaSize + minKeySize + maxKeySize
 
-	minKeySize := m.MinKey.KeySize()
-	maxKeySize := m.MaxKey.KeySize()
-	totalSize := TableMetaSize + int(minKeySize) + int(maxKeySize)
+	buf := make([]byte, totalSize)
+	off := 0
 
-	buf := codec.NewBuffer(totalSize)
+	binary.LittleEndian.PutUint32(buf[off:], uint32(totalSize))
+	off += 4
+	binary.LittleEndian.PutUint64(buf[off:], m.FileNum)
+	off += 8
+	binary.LittleEndian.PutUint64(buf[off:], m.FileSize)
+	off += 8
+	binary.LittleEndian.PutUint32(buf[off:], m.Level)
+	off += 4
 
-	buf.WriteUint32(uint32(totalSize))
-	buf.WriteUint64(m.FileNum)
-	buf.WriteUint64(m.FileSize)
-	buf.WriteUint32(m.Level)
+	binary.LittleEndian.PutUint32(buf[off:], uint32(minKeySize))
+	off += 4
+	off = record.EncodeInternalKey(buf, off, m.MinKey)
 
-	buf.WriteUint32(minKeySize)
-	record.EncodeInternalKey(buf, m.MinKey)
+	binary.LittleEndian.PutUint32(buf[off:], uint32(maxKeySize))
+	off += 4
+	off = record.EncodeInternalKey(buf, off, m.MaxKey)
 
-	buf.WriteUint32(maxKeySize)
-	record.EncodeInternalKey(buf, m.MaxKey)
-
-	return buf.Bytes()
+	_ = off
+	return buf
 }
 
 func decodeTableMeta(b []byte) (*TableMeta, error) {
+	if len(b) < TableMetaSize {
+		return nil, record.ErrCorruptRecord
+	}
+	off := 0
+	off += 4
 
-	buf := codec.NewBufferFromBytes(b)
-	_, err := buf.ReadUint32()
+	fileNum := binary.LittleEndian.Uint64(b[off:])
+	off += 8
+
+	fileSize := binary.LittleEndian.Uint64(b[off:])
+	off += 8
+
+	level := binary.LittleEndian.Uint32(b[off:])
+	off += 4
+
+	off += 4
+	var err error
+	var minKey, maxKey record.InternalKey
+
+	minKey, off, err = record.DecodeInternalKey(b, off)
 	if err != nil {
 		return nil, err
 	}
 
-	fileNum, err := buf.ReadUint64()
+	off += 4
+	maxKey, _, err = record.DecodeInternalKey(b, off)
 	if err != nil {
 		return nil, err
 	}
 
-	fileSize, err := buf.ReadUint64()
-	if err != nil {
-		return nil, err
-	}
-	level, err := buf.ReadUint32()
-	if err != nil {
-		return nil, err
-	}
-
-	// --------
-	_, err = buf.ReadUint32()
-	if err != nil {
-		return nil, err
-	}
-
-	minKey, err := record.DecodeInternalKey(buf)
-	if err != nil {
-		return nil, err
-	}
-
-	// --------
-	_, err = buf.ReadUint32()
-	if err != nil {
-		return nil, err
-	}
-
-	maxKey, err := record.DecodeInternalKey(buf)
-	if err != nil {
-		return nil, err
-	}
-
-	t := &TableMeta{
+	return &TableMeta{
 		FileNum:  fileNum,
 		FileSize: fileSize,
 		Level:    level,
 		MinKey:   minKey,
 		MaxKey:   maxKey,
-	}
-
-	return t, nil
+	}, nil
 }
 
+// [level(4)][file_num(8)]
 func encodeDeletedTable(m *DeletedTableMeta) []byte {
-	buf := codec.NewBuffer(4 + 8)
-	buf.WriteUint32(m.Level)
-	buf.WriteUint64(m.FileNum)
-
-	return buf.Bytes()
+	buf := make([]byte, 4+8)
+	binary.LittleEndian.PutUint32(buf[0:], m.Level)
+	binary.LittleEndian.PutUint64(buf[4:], m.FileNum)
+	return buf
 }
 
 func decodeDeletedTable(b []byte) (*DeletedTableMeta, error) {
-	buf := codec.NewBufferFromBytes(b)
-	level, err := buf.ReadUint32()
-	if err != nil {
-		return nil, err
+	if len(b) < 12 {
+		return nil, record.ErrCorruptRecord
 	}
-
-	fileNum, err := buf.ReadUint64()
-	if err != nil {
-		return nil, err
-	}
-
-	t := &DeletedTableMeta{
-		Level:   level,
-		FileNum: fileNum,
-	}
-
-	return t, nil
+	return &DeletedTableMeta{
+		Level:   binary.LittleEndian.Uint32(b[0:]),
+		FileNum: binary.LittleEndian.Uint64(b[4:]),
+	}, nil
 }

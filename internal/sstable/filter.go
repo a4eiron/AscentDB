@@ -1,10 +1,10 @@
 package sstable
 
 import (
+	"encoding/binary"
+	"errors"
 	"hash/fnv"
 	"math"
-
-	"github.com/a4eiron/ascentdb/internal/codec"
 )
 
 type Filter struct {
@@ -24,14 +24,11 @@ func NewFilter(n int, p float64) *Filter {
 		k = 1
 	}
 
-	byteSize := (m + 7) / 8
-
-	f := &Filter{
-		bits: make([]byte, byteSize),
+	return &Filter{
+		bits: make([]byte, (m+7)/8),
 		m:    m,
 		k:    k,
 	}
-	return f
 }
 
 func (f *Filter) Add(key string) {
@@ -40,27 +37,16 @@ func (f *Filter) Add(key string) {
 
 	for i := range uint64(f.k) {
 		idx := (h1 + i*h2) % uint64(f.m)
-
-		byteIdx := idx / 8
-		bitIdx := idx % 8
-
-		f.bits[byteIdx] |= (1 << bitIdx)
+		f.bits[idx/8] |= 1 << (idx % 8)
 	}
-
 }
 
 func (f *Filter) Contains(key string) bool {
-
 	h1 := hash1(key)
 	h2 := hash2(key)
-
 	for i := range uint64(f.k) {
 		idx := (h1 + i*h2) % uint64(f.m)
-
-		byteIdx := idx / 8
-		bitIdx := idx % 8
-
-		if f.bits[byteIdx]&(1<<bitIdx) == 0 {
+		if f.bits[idx/8]&(1<<(idx%8)) == 0 {
 			return false
 		}
 	}
@@ -80,43 +66,48 @@ func hash2(key string) uint64 {
 	return h.Sum64()
 }
 
+// [bits_len(4)][bits][m(4)][k(1)]
 func EncodeFilter(f *Filter) []byte {
-	totalSize := 4 + len(f.bits) + 4 + 1
-	buf := codec.NewBuffer(totalSize)
+	buf := make([]byte, 4+len(f.bits)+4+1)
 
-	buf.WriteUint32(uint32(len(f.bits)))
-	buf.WriteBytes(f.bits)
-	buf.WriteUint32(f.m)
-	buf.WriteUint8(f.k)
+	off := 0
 
-	return buf.Bytes()
+	binary.LittleEndian.PutUint32(buf[off:], uint32(len(f.bits)))
+	off += 4
+
+	copy(buf[off:], f.bits)
+	off += len(f.bits)
+
+	binary.LittleEndian.PutUint32(buf[off:], f.m)
+	off += 4
+
+	buf[off] = f.k
+
+	return buf
 }
 
 func DecodeFilter(b []byte) (*Filter, error) {
-	buf := codec.NewBufferFromBytes(b)
-	bitsLen, err := buf.ReadUint32()
-	if err != nil {
-		return nil, err
+	if len(b) < 4 {
+		return nil, errors.New("filter: buffer too small")
 	}
 
-	bits, err := buf.ReadBytes(int(bitsLen))
-	if err != nil {
-		return nil, err
+	off := 0
+
+	bitsLen := int(binary.LittleEndian.Uint32(b[off:]))
+	off += 4
+
+	if off+bitsLen+4+1 > len(b) {
+		return nil, errors.New("filter: buffer too small")
 	}
 
-	m, err := buf.ReadUint32()
-	if err != nil {
-		return nil, err
-	}
+	bits := make([]byte, bitsLen)
 
-	k, err := buf.ReadUint8()
-	if err != nil {
-		return nil, err
-	}
+	copy(bits, b[off:off+bitsLen])
+	off += bitsLen
 
-	return &Filter{
-		bits: bits,
-		m:    m,
-		k:    k,
-	}, nil
+	m := binary.LittleEndian.Uint32(b[off:])
+	off += 4
+
+	k := b[off]
+	return &Filter{bits: bits, m: m, k: k}, nil
 }

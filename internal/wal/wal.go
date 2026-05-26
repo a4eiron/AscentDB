@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/a4eiron/ascentdb/internal/codec"
 	"github.com/a4eiron/ascentdb/internal/record"
 )
 
@@ -63,17 +62,28 @@ func (w *WAL) syncer() {
 }
 
 func (w *WAL) Append(r record.Record) error {
-	recordBytes := record.EncodeRecord(r)
-	crc := crc32.ChecksumIEEE(recordBytes)
+	payloadSize := int(r.Size())
 
-	buf := codec.NewBuffer(4 + 4 + len(recordBytes))
-	buf.WriteUint32(crc)
-	buf.WriteUint32(uint32(len(recordBytes)))
-	buf.WriteBytes(recordBytes)
+	buf := make([]byte, 8+payloadSize)
+
+	record.EncodeRecordInto(buf[8:], r)
+
+	payload := buf[8:]
+
+	binary.LittleEndian.PutUint32(
+		buf[0:4],
+		crc32.ChecksumIEEE(payload),
+	)
+
+	binary.LittleEndian.PutUint32(
+		buf[4:8],
+		uint32(payloadSize),
+	)
 
 	w.mu.Lock()
-	_, err := w.file.Write(buf.Bytes())
+	_, err := w.file.Write(buf)
 	w.mu.Unlock()
+
 	return err
 }
 
@@ -85,38 +95,36 @@ func Replay(w *WAL, fn func(r record.Record) error) error {
 		return err
 	}
 
-	crcBuf := make([]byte, 4)
-	sizeBuf := make([]byte, 4)
+	header := make([]byte, 8)
 	var recBuf []byte
 
 	for {
+		_, err := io.ReadFull(w.file, header)
 
-		_, err := io.ReadFull(w.file, crcBuf)
 		if err == io.EOF {
 			break
 		}
+		if err == io.ErrUnexpectedEOF {
+			return errors.New("wal: truncated header")
+		}
 		if err != nil {
 			return err
 		}
 
-		expectedCRC := binary.LittleEndian.Uint32(crcBuf)
+		expectedCRC := binary.LittleEndian.Uint32(header[0:4])
+		recSize := binary.LittleEndian.Uint32(header[4:8])
 
-		_, err = io.ReadFull(w.file, sizeBuf)
-		if err != nil {
-			return err
-		}
-
-		recSize := binary.LittleEndian.Uint32(sizeBuf)
 		if cap(recBuf) < int(recSize) {
 			recBuf = make([]byte, recSize)
 		}
-		_, err = io.ReadFull(w.file, recBuf)
-		if err != nil {
+
+		recBuf = recBuf[:recSize]
+
+		if _, err := io.ReadFull(w.file, recBuf); err != nil {
 			return err
 		}
 
-		actualCRC := crc32.ChecksumIEEE(recBuf)
-		if actualCRC != expectedCRC {
+		if crc32.ChecksumIEEE(recBuf) != expectedCRC {
 			return errors.New("wal: corrupt record")
 		}
 

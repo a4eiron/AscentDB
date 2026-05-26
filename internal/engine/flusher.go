@@ -15,36 +15,44 @@ import (
 type flushTask struct {
 	oldWalPath string
 	oldWal     *wal.WAL
-	mt         *memtable.Memtable
-	writer     *sstable.TableWriter
-	fileNum    uint64
+
+	mt *memtable.Memtable
+
+	writer  *sstable.TableWriter
+	fileNum uint64
 }
 
 func (e *Engine) rotate() (*flushTask, error) {
-
-	blockSize := e.opts.BlockSize
-
-	// capture the active memtable and wal
-	// make them immutable
 	mt := e.mt
 	e.immt = mt
 
-	var oldWal *wal.WAL
-	var oldWalPath string
+	var (
+		oldWal     *wal.WAL
+		oldWalPath string
+	)
 
 	if e.opts.CrashRecovery {
 		oldWal = e.wal
 		e.imwal = oldWal
 		oldWalPath = oldWal.Path()
 
-		fileNum := e.vs.NextFileNum()
-		newWal, err := wal.Open(e.walPath(fileNum), e.opts.WALSyncInterval)
+		logNum := e.vs.NextFileNum()
+
+		newWal, err := wal.Open(
+			e.walPath(logNum),
+			e.opts.WALSyncInterval,
+		)
 		if err != nil {
-			log.Println("failed to create new WAL", err)
+			log.Println("failed to create wal:", err)
 			return nil, err
 		}
+
 		e.wal = newWal
-		edit := &meta.VersionEdit{LogNumber: &fileNum}
+
+		edit := &meta.VersionEdit{
+			LogNumber: &logNum,
+		}
+
 		if err := e.vs.LogAndApply(edit); err != nil {
 			log.Println(err)
 		}
@@ -52,25 +60,25 @@ func (e *Engine) rotate() (*flushTask, error) {
 
 	e.mt = memtable.New(uint64(e.opts.MemtableSize))
 
-	// create an sstable writer
 	fileNum := e.vs.NextFileNum()
-	e.ensureLevelDir(0)
-	path := e.tablePath(0, fileNum)
 
-	writer, err := sstable.Create(path, blockSize)
+	e.ensureLevelDir(0)
+
+	writer, err := sstable.Create(
+		e.tablePath(0, fileNum),
+		e.opts.BlockSize,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	task := &flushTask{
+	return &flushTask{
 		oldWal:     oldWal,
 		oldWalPath: oldWalPath,
 		mt:         mt,
 		writer:     writer,
 		fileNum:    fileNum,
-	}
-
-	return task, nil
+	}, nil
 }
 
 func (e *Engine) runFlusher() {
@@ -83,33 +91,37 @@ func (e *Engine) runFlusher() {
 }
 
 func (e *Engine) flush(task *flushTask) error {
+	var (
+		firstKey record.InternalKey
+		lastKey  record.InternalKey
+		hasData  bool
+	)
 
-	first := true
-	var firstKey, lastKey record.InternalKey
+	iter := task.mt.Iterator()
 
-	for iter := task.mt.Iterator(); iter.Valid(); iter.Next() {
+	for iter.Valid() {
 		key := iter.Key()
 		value := iter.Value()
 
-		if first {
+		if !hasData {
 			firstKey = key
-			first = false
+			hasData = true
 		}
+
 		lastKey = key
 
 		if err := task.writer.Add(record.Record{
 			InternalKey: key,
 			Value:       value,
 		}); err != nil {
-			return fmt.Errorf("failed to write to add to sstable: %w", err)
+			return fmt.Errorf("failed to add record to sstable: %w", err)
 		}
+
+		iter.Next()
 	}
 
-	fileNum := task.fileNum
-	// fmt.Sscanf(filepath.Base(task.writer.Path()), "table-%06d.sst", &fileNum)
-
-	if first {
-		task.writer.Close()
+	if !hasData {
+		_, _ = task.writer.Close()
 		return os.Remove(task.writer.Path())
 	}
 
@@ -125,7 +137,7 @@ func (e *Engine) flush(task *flushTask) error {
 		LastSequence: &lastKey.SeqNum,
 		AddTables: []*meta.TableMeta{
 			{
-				FileNum:  fileNum,
+				FileNum:  task.fileNum,
 				FileSize: uint64(fileSize),
 				Level:    0,
 				MinKey:   firstKey,
@@ -139,11 +151,14 @@ func (e *Engine) flush(task *flushTask) error {
 		log.Println(err)
 	}
 
-	if err := task.oldWal.Close(); err != nil {
-		log.Println("failed to close wal:", task.oldWalPath, err)
-	}
-	if err := os.Remove(task.oldWalPath); err != nil {
-		log.Println("failed to delete wal:", task.oldWalPath, err)
+	if task.oldWal != nil {
+		if err := task.oldWal.Close(); err != nil {
+			log.Println("failed to close wal:", task.oldWalPath, err)
+		}
+
+		if err := os.Remove(task.oldWalPath); err != nil {
+			log.Println("failed to delete wal:", task.oldWalPath, err)
+		}
 	}
 
 	e.immt = nil
