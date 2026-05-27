@@ -64,21 +64,17 @@ func (w *WAL) syncer() {
 func (w *WAL) Append(r record.Record) error {
 	payloadSize := int(r.Size())
 
-	buf := make([]byte, 8+payloadSize)
+	// size + payloadSize + checksumSize
+	buf := make([]byte, 4+payloadSize+4)
 
-	record.EncodeRecordInto(buf[8:], r)
+	binary.LittleEndian.PutUint32(buf[:4], uint32(payloadSize))
 
-	payload := buf[8:]
+	payload := buf[4 : 4+payloadSize]
+	record.EncodeRecordInto(payload, r)
 
-	binary.LittleEndian.PutUint32(
-		buf[0:4],
-		crc32.ChecksumIEEE(payload),
-	)
+	checksum := crc32.ChecksumIEEE(payload)
 
-	binary.LittleEndian.PutUint32(
-		buf[4:8],
-		uint32(payloadSize),
-	)
+	binary.LittleEndian.PutUint32(buf[4+payloadSize:], checksum)
 
 	w.mu.Lock()
 	_, err := w.file.Write(buf)
@@ -95,11 +91,12 @@ func Replay(w *WAL, fn func(r record.Record) error) error {
 		return err
 	}
 
-	header := make([]byte, 8)
+	sizeHeader := make([]byte, 4)
 	var recBuf []byte
+	checkSumBuf := make([]byte, 4)
 
 	for {
-		_, err := io.ReadFull(w.file, header)
+		_, err := io.ReadFull(w.file, sizeHeader)
 
 		if err == io.EOF {
 			break
@@ -111,9 +108,7 @@ func Replay(w *WAL, fn func(r record.Record) error) error {
 			return err
 		}
 
-		expectedCRC := binary.LittleEndian.Uint32(header[0:4])
-		recSize := binary.LittleEndian.Uint32(header[4:8])
-
+		recSize := binary.LittleEndian.Uint32(sizeHeader)
 		if cap(recBuf) < int(recSize) {
 			recBuf = make([]byte, recSize)
 		}
@@ -121,9 +116,20 @@ func Replay(w *WAL, fn func(r record.Record) error) error {
 		recBuf = recBuf[:recSize]
 
 		if _, err := io.ReadFull(w.file, recBuf); err != nil {
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				return errors.New("wal: truncated payload")
+			}
 			return err
 		}
 
+		if _, err := io.ReadFull(w.file, checkSumBuf); err != nil {
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				return errors.New("wal: truncated checksum")
+			}
+			return err
+		}
+
+		expectedCRC := binary.LittleEndian.Uint32(checkSumBuf)
 		if crc32.ChecksumIEEE(recBuf) != expectedCRC {
 			return errors.New("wal: corrupt record")
 		}
@@ -148,6 +154,9 @@ func (w *WAL) Sync() error {
 }
 
 func (w *WAL) Path() string {
+	if w == nil {
+		return ""
+	}
 	return w.file.Name()
 }
 

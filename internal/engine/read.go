@@ -84,7 +84,10 @@ func (e *Engine) get(key []byte, seqNum uint64) ([]byte, bool) {
 		}
 	}
 
-	var best *record.Record
+	var (
+		best      record.Record
+		bestFound bool
+	)
 
 	checkTable := func(t *meta.TableMeta) {
 		reader, err := e.getReader(t)
@@ -101,8 +104,9 @@ func (e *Engine) get(key []byte, seqNum uint64) ([]byte, bool) {
 		if !ok {
 			return
 		}
-		if best == nil || rec.SeqNum > best.SeqNum {
+		if !bestFound || rec.SeqNum > best.SeqNum {
 			best = rec
+			bestFound = true
 		}
 	}
 
@@ -130,14 +134,14 @@ func (e *Engine) get(key []byte, seqNum uint64) ([]byte, bool) {
 			}
 			checkTable(tables[idx])
 
-			if best != nil {
+			if bestFound {
 				break
 			}
 		}
 
 	}
 
-	if best != nil {
+	if bestFound {
 		if best.Type == record.TypeDel {
 			return nil, false
 		}
@@ -148,18 +152,25 @@ func (e *Engine) get(key []byte, seqNum uint64) ([]byte, bool) {
 }
 
 func (e *Engine) getReader(t *meta.TableMeta) (*sstable.TableReader, error) {
-	if r, ok := e.tableCache.Load(t.FileNum); ok {
-		return r.(*sstable.TableReader), nil
+	e.tableCacheMu.RLock()
+	r, ok := e.tableCache[t.FileNum]
+	e.tableCacheMu.RUnlock()
+	if ok {
+		return r, nil
 	}
 
 	r, err := sstable.Open(e.tablePath(int(t.Level), t.FileNum), e.blockCache)
 	if err != nil {
 		return nil, err
 	}
-	actual, loaded := e.tableCache.LoadOrStore(t.FileNum, r)
-	if loaded {
+
+	e.tableCacheMu.Lock()
+	if existing, ok := e.tableCache[t.FileNum]; ok {
+		e.tableCacheMu.Unlock()
 		r.Close()
-		return actual.(*sstable.TableReader), nil
+		return existing, nil
 	}
+	e.tableCache[t.FileNum] = r
+	e.tableCacheMu.Unlock()
 	return r, nil
 }

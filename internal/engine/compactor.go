@@ -127,9 +127,9 @@ func (e *Engine) compactLevel(
 	}
 
 	for _, t := range all {
-		if r, ok := e.tableCache.Load(t.FileNum); ok {
-			r.(*sstable.TableReader).Close()
-			e.tableCache.Delete(t.FileNum)
+		if r, ok := e.tableCache[t.FileNum]; ok {
+			r.Close()
+			delete(e.tableCache, t.FileNum)
 		}
 		os.Remove(e.tablePath(int(t.Level), t.FileNum))
 	}

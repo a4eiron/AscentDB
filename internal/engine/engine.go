@@ -27,7 +27,9 @@ type Engine struct {
 	vs     *meta.VersionSet
 	seqNum uint64
 
-	tableCache sync.Map
+	tableCache   map[uint64]*sstable.TableReader
+	tableCacheMu sync.RWMutex
+
 	blockCache *sstable.BlockCache
 
 	flushChan chan *flushTask
@@ -63,6 +65,7 @@ func New(opts *config.Options) (*Engine, error) {
 		mt:         memtable.New(uint64(opts.MemtableSize)),
 		flushChan:  make(chan *flushTask, 6),
 		blockCache: sstable.NewBlockCache(1024),
+		tableCache: make(map[uint64]*sstable.TableReader),
 	}
 
 	vs, err := meta.Open(opts.DataDir)
@@ -73,26 +76,26 @@ func New(opts *config.Options) (*Engine, error) {
 	e.vs = vs
 	atomic.StoreUint64(&e.seqNum, vs.LastSequenceNum())
 
-	if opts.CrashRecovery {
-		walPath := filepath.Join(
-			opts.DataDir,
-			"wal",
-			fmt.Sprintf("wal-%06d.log", vs.LogNumber()),
-		)
+	go e.runFlusher()
 
-		e.wal, err = wal.Open(walPath, opts.WALSyncInterval)
-		if err != nil {
-			log.Println(err)
-			return nil, err
-		}
+	if opts.CrashRecovery {
+		// walPath := filepath.Join(
+		// 	opts.DataDir,
+		// 	"wal",
+		// 	fmt.Sprintf("wal-%06d.log", vs.LogNumber()),
+		// )
+
+		// e.wal, err = wal.Open(walPath, opts.WALSyncInterval)
+		// if err != nil {
+		// 	log.Println(err)
+		// 	return nil, err
+		// }
 
 		if err := e.recover(); err != nil {
 			log.Println(err)
 			return nil, err
 		}
 	}
-
-	go e.runFlusher()
 
 	return e, nil
 }
@@ -149,9 +152,11 @@ func (e *Engine) Close() error {
 	close(e.flushChan)
 	e.compactWg.Wait()
 
-	e.tableCache.Range(func(_, value any) bool {
-		return value.(*sstable.TableReader).Close() == nil
-	})
+	for _, r := range e.tableCache {
+		if err := r.Close(); err != nil {
+			return err
+		}
+	}
 
 	if e.wal != nil {
 		return e.wal.Close()

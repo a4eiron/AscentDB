@@ -76,19 +76,19 @@ func Open(path string, cache *BlockCache) (*TableReader, error) {
 	return reader, nil
 }
 
-func (r *TableReader) Get(key record.InternalKey) (*record.Record, bool, error) {
+func (r *TableReader) Get(key record.InternalKey) (record.Record, bool, error) {
 
 	if !r.filter.Contains(string(key.UserKey)) {
-		return nil, false, nil
+		return record.Record{}, false, nil
 	}
 	entry := r.findBlock(key)
 	if entry == nil {
-		return nil, false, nil
+		return record.Record{}, false, nil
 	}
 
 	block, err := r.readBlock(entry.BlockOffset, entry.BlockSize)
 	if err != nil {
-		return nil, false, err
+		return record.Record{}, false, err
 	}
 
 	idx := sort.Search(len(block.entries), func(i int) bool {
@@ -97,11 +97,11 @@ func (r *TableReader) Get(key record.InternalKey) (*record.Record, bool, error) 
 
 	if idx >= len(block.entries) ||
 		!bytes.Equal(block.entries[idx].UserKey, key.UserKey) {
-		return nil, false, nil
+		return record.Record{}, false, nil
 	}
 
 	rec := block.entries[idx]
-	return &rec, true, nil
+	return rec, true, nil
 }
 
 func (r *TableReader) Close() error {

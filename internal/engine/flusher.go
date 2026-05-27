@@ -56,6 +56,7 @@ func (e *Engine) rotate() (*flushTask, error) {
 		if err := e.vs.LogAndApply(edit); err != nil {
 			log.Println(err)
 		}
+		log.Println("rotate logNumber:", logNum)
 	}
 
 	e.mt = memtable.New(uint64(e.opts.MemtableSize))
@@ -131,6 +132,8 @@ func (e *Engine) flush(task *flushTask) error {
 	}
 
 	nextFileNum := e.vs.NextFileNum()
+
+	log.Println("writer cloesd", string(lastKey.UserKey))
 
 	edit := &meta.VersionEdit{
 		NextFileNum:  &nextFileNum,

@@ -67,3 +67,22 @@ func (e *Engine) write(key, value []byte, typ record.IKType) error {
 
 	return nil
 }
+
+func (e *Engine) recoveryWrite(r record.Record) error {
+
+	e.mt.Put(r)
+	var task *flushTask
+	if e.mt.IsFull() {
+		var err error
+		task, err = e.rotate()
+		if err != nil {
+			return err
+		}
+	}
+	if task != nil {
+		e.flushWg.Add(1)
+		e.flushChan <- task
+	}
+
+	return nil
+}
