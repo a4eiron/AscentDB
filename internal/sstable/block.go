@@ -2,9 +2,8 @@ package sstable
 
 import (
 	"encoding/binary"
-	"hash/crc32"
-
 	"github.com/a4eiron/ascentdb/internal/record"
+	"hash/crc32"
 )
 
 type Block struct {

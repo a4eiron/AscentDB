@@ -2,9 +2,14 @@ package internal
 
 import (
 	"container/heap"
+	"sync"
 
 	"github.com/a4eiron/ascentdb/internal/record"
 )
+
+var itemPool = sync.Pool{
+	New: func() any { return &Item{} },
+}
 
 type Item struct {
 	Iter   Iterator
@@ -47,13 +52,13 @@ func NewIteratorHeap(iters []Iterator) *IteratorHeap {
 		if !iter.Valid() {
 			continue
 		}
-		items = append(items, &Item{
-			Iter: iter,
-			Record: record.Record{
-				InternalKey: iter.Key(),
-				Value:       iter.Value(),
-			},
-		})
+		item := itemPool.Get().(*Item)
+		item.Iter = iter
+		item.Record = record.Record{
+			InternalKey: iter.Key(),
+			Value:       iter.Value(),
+		}
+		items = append(items, item)
 	}
 
 	h := &IteratorHeap{
@@ -89,6 +94,9 @@ func (h *IteratorHeap) PopAndAdvance() record.Record {
 		item.Record.InternalKey = item.Iter.Key()
 		item.Record.Value = item.Iter.Value()
 		heap.Push(h, item)
+	} else {
+		item.Iter = nil
+		itemPool.Put(item)
 	}
 	return rec
 }

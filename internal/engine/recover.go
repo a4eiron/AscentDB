@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"slices"
 	"sync/atomic"
-	"time"
 
+	"github.com/a4eiron/ascentdb/internal/config"
 	"github.com/a4eiron/ascentdb/internal/record"
 	"github.com/a4eiron/ascentdb/internal/wal"
 )
@@ -18,9 +18,7 @@ func (e *Engine) recover() error {
 	walDir := filepath.Join(e.opts.DataDir, "wal")
 	logNumber := e.vs.LogNumber()
 
-	log.Println("lastlognumber:", logNumber)
-
-	time.Sleep(4 * time.Second)
+	// log.Println("lastlognumber:", logNumber)
 
 	entries, err := os.ReadDir(walDir)
 	if err != nil {
@@ -28,7 +26,7 @@ func (e *Engine) recover() error {
 	}
 
 	if len(entries) == 0 {
-		if e.wal, err = wal.Open(e.walPath(logNumber), e.opts.WALSyncInterval); err != nil {
+		if e.wal, err = wal.Open(e.walPath(logNumber), e.opts.SyncOptions); err != nil {
 			return err
 		}
 		return nil
@@ -51,14 +49,13 @@ func (e *Engine) recover() error {
 	slices.Sort(fileNums)
 
 	for _, num := range fileNums {
-		w, err := wal.Open(e.walPath(num), 0)
+		w, err := wal.Open(e.walPath(num), config.SyncOptions{Mode: config.SyncNone, Interval: 0})
 		if err != nil {
 			return err
 		}
 
 		var maxSeq uint64
 		if err := wal.Replay(w, func(r record.Record) error {
-			log.Println("recovered userkey", string(r.UserKey))
 			if err := e.recoveryWrite(r); err != nil {
 				return err
 			}
@@ -78,8 +75,6 @@ func (e *Engine) recover() error {
 		if err := os.Remove(w.Path()); err != nil {
 			return err
 		}
-
-		log.Println("recovered", num)
 
 		if maxSeq > e.seqNum {
 			atomic.StoreUint64(&e.seqNum, maxSeq)

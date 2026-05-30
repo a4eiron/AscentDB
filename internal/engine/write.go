@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -9,7 +10,7 @@ import (
 )
 
 func (e *Engine) Put(key, value []byte) error {
-	if key == nil || value == nil {
+	if bytes.Equal(key, nil) || bytes.Equal(value, nil) {
 		return fmt.Errorf("cannot put with empty key or value")
 	}
 	return e.write(key, value, record.TypePut)
@@ -40,7 +41,6 @@ func (e *Engine) write(key, value []byte, typ record.IKType) error {
 		}
 		time.Sleep(1 * time.Second)
 	}
-	e.mu.Lock()
 
 	if e.opts.CrashRecovery {
 		if err := e.wal.Append(r); err != nil {
@@ -50,6 +50,7 @@ func (e *Engine) write(key, value []byte, typ record.IKType) error {
 
 	e.mt.Put(r)
 
+	e.mu.Lock()
 	var task *flushTask
 	if e.mt.IsFull() {
 		var err error

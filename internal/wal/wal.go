@@ -9,78 +9,83 @@ import (
 	"sync"
 	"time"
 
+	"github.com/a4eiron/ascentdb/internal/config"
 	"github.com/a4eiron/ascentdb/internal/record"
 )
 
 type WAL struct {
-	file      *os.File
-	mu        sync.Mutex
-	syncChan  chan struct{}
-	closeChan chan struct{}
-	interval  time.Duration
+	file *os.File
+	mu   sync.Mutex
+	opts config.SyncOptions
+
+	commitCh chan commitReq
+	closeCh  chan struct{}
+
+	syncCh chan struct{}
 }
 
-func Open(path string, syncInternval time.Duration) (*WAL, error) {
+type commitReq struct {
+	buf  []byte
+	done chan error
+}
+
+func Open(path string, opts config.SyncOptions) (*WAL, error) {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0644)
 	if err != nil {
 		return nil, err
 	}
 
 	wal := &WAL{
-		file:      file,
-		syncChan:  make(chan struct{}),
-		closeChan: make(chan struct{}),
-		interval:  syncInternval,
+		file:    file,
+		opts:    opts,
+		closeCh: make(chan struct{}),
+		syncCh:  make(chan struct{}),
 	}
 
-	if syncInternval > 0 {
-		go wal.syncer()
+	switch opts.Mode {
+	case config.SyncNone:
+		if opts.Interval > 0 {
+			go wal.intervalSyncer()
+		}
+	case config.SyncBatch:
+		wal.commitCh = make(chan commitReq, 256)
+		go wal.committer()
 	}
 
 	return wal, nil
 }
 
-func (w *WAL) syncer() {
-	ticker := time.NewTicker(w.interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			w.mu.Lock()
-			w.file.Sync()
-
-			old := w.syncChan
-			w.syncChan = make(chan struct{})
-			w.mu.Unlock()
-			close(old)
-		case <-w.closeChan:
-			return
-		}
-	}
-
-}
-
 func (w *WAL) Append(r record.Record) error {
 	payloadSize := int(r.Size())
 
-	// size + payloadSize + checksumSize
 	buf := make([]byte, 4+payloadSize+4)
-
 	binary.LittleEndian.PutUint32(buf[:4], uint32(payloadSize))
 
 	payload := buf[4 : 4+payloadSize]
 	record.EncodeRecordInto(payload, r)
-
 	checksum := crc32.ChecksumIEEE(payload)
-
 	binary.LittleEndian.PutUint32(buf[4+payloadSize:], checksum)
 
+	switch w.opts.Mode {
+	case config.SyncBatch:
+		return w.appendBatch(buf)
+	default:
+		return w.appendAsync(buf)
+	}
+
+}
+
+func (w *WAL) appendAsync(buf []byte) error {
 	w.mu.Lock()
 	_, err := w.file.Write(buf)
 	w.mu.Unlock()
-
 	return err
+}
+
+func (w *WAL) appendBatch(buf []byte) error {
+	done := make(chan error, 1)
+	w.commitCh <- commitReq{buf: buf, done: done}
+	return <-done
 }
 
 func Replay(w *WAL, fn func(r record.Record) error) error {
@@ -164,13 +169,72 @@ func (w *WAL) Close() error {
 	if w == nil {
 		return nil
 	}
-	if w.interval > 0 {
-		close(w.closeChan)
-	}
 
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	close(w.closeCh)
 
 	w.file.Sync()
 	return w.file.Close()
+}
+
+func (w *WAL) committer() {
+	for {
+		var reqs []commitReq
+		select {
+		case req := <-w.commitCh:
+			reqs = append(reqs, req)
+		case <-w.closeCh:
+			for {
+				select {
+				case req := <-w.commitCh:
+					req.done <- errors.New("wal: closed")
+				default:
+					return
+				}
+			}
+		}
+
+		for {
+			select {
+			case req := <-w.commitCh:
+				reqs = append(reqs, req)
+			default:
+				goto flush
+			}
+		}
+
+	flush:
+		var batch []byte
+		for _, r := range reqs {
+			batch = append(batch, r.buf...)
+		}
+
+		_, err := w.file.Write(batch)
+		if err == nil {
+			err = w.file.Sync()
+		}
+
+		for _, r := range reqs {
+			r.done <- err
+		}
+	}
+}
+
+func (w *WAL) intervalSyncer() {
+	ticker := time.NewTicker(w.opts.Interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			w.mu.Lock()
+			w.file.Sync()
+			old := w.syncCh
+			w.syncCh = make(chan struct{})
+			w.mu.Unlock()
+			close(old)
+
+		case <-w.closeCh:
+			return
+		}
+	}
 }

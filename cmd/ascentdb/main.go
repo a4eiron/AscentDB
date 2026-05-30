@@ -13,11 +13,14 @@ func main() {
 	log.SetFlags(log.Lshortfile)
 
 	e, err := engine.New(&config.Options{
-		DataDir:         "./data",
-		BlockSize:       16 * 1024,
-		MemtableSize:    4 * 1024 * 1024,
-		CrashRecovery:   true,
-		WALSyncInterval: 600 * time.Millisecond,
+		DataDir:       "./data",
+		BlockSize:     16 * 1024,
+		MemtableSize:  4 * 1024 * 1024,
+		CrashRecovery: true,
+		SyncOptions: config.SyncOptions{
+			Mode:     config.SyncNone,
+			Interval: 600 * time.Millisecond,
+		},
 	})
 
 	if err != nil {
@@ -25,37 +28,16 @@ func main() {
 	}
 	defer e.Close()
 
-	// var m1, m2 runtime.MemStats
-	// runtime.ReadMemStats(&m1)
+	// var wg sync.WaitGroup
+	// wg.Go(func() {
+	// putSomeStuff(e, 0, 50000)
+	// })
+	// wg.Go(func() {
+	// putSomeStuff(e, 0, 100000)
+	// })
 
-	// putSomeStuff(e, 0, 200)
-	// getSomeStuff(e, 0, 200)
-	snap := e.NewSnapshot()
-
-	e.Delete([]byte(fmt.Sprintf("key-%020d", 127)))
-
-	start := fmt.Sprintf("key-%020d", 120)
-	end := fmt.Sprintf("key-%020d", 130)
-
-	iter := snap.Scan([]byte(start), []byte(end))
-	log.Println("snapshot=======")
-	for ; iter.Valid(); iter.Next() {
-		fmt.Println(string(iter.Key().UserKey), string(iter.Value()))
-	}
-
-	iter = e.Scan([]byte(start), []byte(end))
-	log.Println("live=======")
-	for ; iter.Valid(); iter.Next() {
-		fmt.Println(string(iter.Key().UserKey), string(iter.Value()))
-	}
-
-	// runtime.ReadMemStats(&m2)
-
-	// fmt.Printf("Allocations during workload:\n")
-	// fmt.Printf("  HeapAlloc:   %d → %d bytes\n", m1.HeapAlloc, m2.HeapAlloc)
-	// fmt.Printf("  HeapObjects: %d → %d\n", m1.HeapObjects, m2.HeapObjects)
-	// fmt.Printf("  Mallocs:     %d\n", m2.Mallocs-m1.Mallocs)
-
+	// wg.Wait()
+	getSomeStuff(e, 0, 200000)
 }
 
 func putSomeStuff(e *engine.Engine, start, end int) {
@@ -73,11 +55,11 @@ func getSomeStuff(e *engine.Engine, start, end int) {
 	counter := 0
 	for i := start; i < end; i++ {
 		key := fmt.Sprintf("key-%020d", i)
-		if _, ok := e.Get([]byte(key)); ok {
+		if val, ok := e.Get([]byte(key)); ok {
 			counter++
-			// log.Println(string(val))
+			log.Println(string(val))
 		} else {
-			log.Println("MISSED IT", key)
+			// log.Println("MISSED IT", key)
 		}
 	}
 
