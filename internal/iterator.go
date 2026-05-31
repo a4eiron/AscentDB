@@ -6,7 +6,8 @@ type Iterator interface {
 	Valid() bool
 	Next()
 
-	Key() record.InternalKey
+	InternalKey() record.InternalKey
+	Key() []byte
 	Value() []byte
 
 	Seek(target record.InternalKey)

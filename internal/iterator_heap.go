@@ -55,7 +55,7 @@ func NewIteratorHeap(iters []Iterator) *IteratorHeap {
 		item := itemPool.Get().(*Item)
 		item.Iter = iter
 		item.Record = record.Record{
-			InternalKey: iter.Key(),
+			InternalKey: iter.InternalKey(),
 			Value:       iter.Value(),
 		}
 		items = append(items, item)
@@ -91,7 +91,7 @@ func (h *IteratorHeap) PopAndAdvance() record.Record {
 	item.Iter.Next()
 
 	if item.Iter.Valid() {
-		item.Record.InternalKey = item.Iter.Key()
+		item.Record.InternalKey = item.Iter.InternalKey()
 		item.Record.Value = item.Iter.Value()
 		heap.Push(h, item)
 	} else {

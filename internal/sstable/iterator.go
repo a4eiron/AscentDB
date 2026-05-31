@@ -34,9 +34,11 @@ func (iter *SSTableIterator) Next() {
 	iter.loadBlock()
 }
 
-func (iter *SSTableIterator) Key() record.InternalKey {
+func (iter *SSTableIterator) InternalKey() record.InternalKey {
 	return iter.block.entries[iter.entryIndex].InternalKey
 }
+
+func (iter *SSTableIterator) Key() []byte { return nil }
 
 func (iter *SSTableIterator) Value() []byte {
 	return iter.block.entries[iter.entryIndex].Value
@@ -50,7 +52,7 @@ func (iter *SSTableIterator) Seek(target record.InternalKey) {
 	}
 	iter.blockIndex = idx
 	iter.loadBlock()
-	for iter.entryIndex < len(iter.block.entries) && iter.Valid() && iter.Key().Compare(target) < 0 {
+	for iter.entryIndex < len(iter.block.entries) && iter.Valid() && iter.InternalKey().Compare(target) < 0 {
 		iter.entryIndex++
 	}
 

@@ -31,8 +31,8 @@ func (sIter *ScanIterator) Valid() bool {
 	return sIter.current != nil
 }
 
-func (sIter *ScanIterator) Key() record.InternalKey {
-	return sIter.current.InternalKey
+func (sIter *ScanIterator) Key() []byte {
+	return sIter.current.UserKey
 }
 
 func (sIter *ScanIterator) Value() []byte {

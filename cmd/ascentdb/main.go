@@ -46,7 +46,7 @@ func main() {
 
 	iter := e.Scan(fmt.Appendf(nil, "user:1:"), fmt.Appendf(nil, "user:1;"))
 	for iter.Valid() {
-		fmt.Println(string(iter.Key().UserKey), string(iter.Value()))
+		fmt.Println(string(iter.Key()), string(iter.Value()))
 		iter.Next()
 	}
 
