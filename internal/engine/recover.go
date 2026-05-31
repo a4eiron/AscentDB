@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sync/atomic"
 
 	"github.com/a4eiron/ascentdb/internal/config"
 	"github.com/a4eiron/ascentdb/internal/record"
@@ -17,8 +16,6 @@ func (e *Engine) recover() error {
 
 	walDir := filepath.Join(e.opts.DataDir, "wal")
 	logNumber := e.vs.LogNumber()
-
-	// log.Println("lastlognumber:", logNumber)
 
 	entries, err := os.ReadDir(walDir)
 	if err != nil {
@@ -76,8 +73,8 @@ func (e *Engine) recover() error {
 			return err
 		}
 
-		if maxSeq > e.seqNum {
-			atomic.StoreUint64(&e.seqNum, maxSeq)
+		if maxSeq > e.seqNum.Load() {
+			e.seqNum.Store(maxSeq)
 		}
 	}
 

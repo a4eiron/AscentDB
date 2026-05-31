@@ -28,16 +28,28 @@ func main() {
 	}
 	defer e.Close()
 
-	// var wg sync.WaitGroup
-	// wg.Go(func() {
-	// putSomeStuff(e, 0, 50000)
-	// })
-	// wg.Go(func() {
-	// putSomeStuff(e, 0, 100000)
-	// })
+	// wb := batch.New()
+	//
+	// wb.Put(fmt.Appendf(nil, "user:1:name"), fmt.Appendf(nil, "alice")).
+	// 	Put(fmt.Appendf(nil, "user:1:email"), fmt.Appendf(nil, "alice@gmail.com"))
+	//
+	// if err := e.WriteBatch(wb); err != nil {
+	// 	log.Fatal(err)
+	// }
+	//
+	// if val, ok := e.Get(fmt.Appendf(nil, "user:1:name")); ok {
+	// 	fmt.Println(string(val))
+	// }
+	// if val, ok := e.Get(fmt.Appendf(nil, "user:1:email")); ok {
+	// 	fmt.Println(string(val))
+	// }
 
-	// wg.Wait()
-	getSomeStuff(e, 0, 200000)
+	iter := e.Scan(fmt.Appendf(nil, "user:1:"), fmt.Appendf(nil, "user:1;"))
+	for iter.Valid() {
+		fmt.Println(string(iter.Key().UserKey), string(iter.Value()))
+		iter.Next()
+	}
+
 }
 
 func putSomeStuff(e *engine.Engine, start, end int) {

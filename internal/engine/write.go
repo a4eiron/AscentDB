@@ -3,9 +3,9 @@ package engine
 import (
 	"bytes"
 	"fmt"
-	"sync/atomic"
 	"time"
 
+	"github.com/a4eiron/ascentdb/internal/batch"
 	"github.com/a4eiron/ascentdb/internal/record"
 )
 
@@ -21,7 +21,7 @@ func (e *Engine) Delete(key []byte) {
 }
 
 func (e *Engine) write(key, value []byte, typ record.IKType) error {
-	seq := atomic.AddUint64(&e.seqNum, 1)
+	seq := e.seqNum.Add(1)
 	r := record.Record{
 		InternalKey: record.InternalKey{
 			UserKey: key,
@@ -48,9 +48,8 @@ func (e *Engine) write(key, value []byte, typ record.IKType) error {
 		}
 	}
 
-	e.mt.Put(r)
-
 	e.mu.Lock()
+	e.mt.Put(r)
 	var task *flushTask
 	if e.mt.IsFull() {
 		var err error
@@ -67,6 +66,65 @@ func (e *Engine) write(key, value []byte, typ record.IKType) error {
 	}
 
 	return nil
+}
+
+func (e *Engine) WriteBatch(b *batch.Batch) error {
+	if b.Len() == 0 {
+		return nil
+	}
+
+	for _, rec := range b.Records() {
+		if rec.KeyLen() == 0 {
+			return fmt.Errorf("writebatch: empty key")
+		}
+
+		if rec.Type == record.TypePut && rec.Value == nil {
+			return fmt.Errorf("writebatch: nil value for key %s", rec.UserKey)
+		}
+	}
+
+	n := uint64(b.Len())
+	endSeq := e.seqNum.Add(n)
+	startSeq := endSeq - n + 1
+
+	recs := make([]record.Record, b.Len())
+	for i, rec := range b.Records() {
+		rec.SeqNum = startSeq + uint64(i)
+		recs[i] = rec
+	}
+
+	if e.opts.CrashRecovery {
+		if err := e.wal.AppendBatch(recs, startSeq); err != nil {
+			return err
+		}
+	}
+
+	e.mu.Lock()
+	var tasks []*flushTask
+
+	for _, r := range recs {
+		e.mt.Put(r)
+		if e.mt.IsFull() {
+			task, err := e.rotate()
+			if err != nil {
+				e.mu.Unlock()
+				return err
+			}
+
+			if task != nil {
+				tasks = append(tasks, task)
+			}
+		}
+	}
+
+	e.mu.Unlock()
+	for _, task := range tasks {
+		e.flushWg.Add(1)
+		e.flushChan <- task
+	}
+
+	return nil
+
 }
 
 func (e *Engine) recoveryWrite(r record.Record) error {

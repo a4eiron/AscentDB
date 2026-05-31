@@ -5,6 +5,7 @@ import (
 	"errors"
 	"hash/crc32"
 	"io"
+	"log"
 	"os"
 	"sync"
 	"time"
@@ -20,8 +21,6 @@ type WAL struct {
 
 	commitCh chan commitReq
 	closeCh  chan struct{}
-
-	syncCh chan struct{}
 }
 
 type commitReq struct {
@@ -39,7 +38,6 @@ func Open(path string, opts config.SyncOptions) (*WAL, error) {
 		file:    file,
 		opts:    opts,
 		closeCh: make(chan struct{}),
-		syncCh:  make(chan struct{}),
 	}
 
 	switch opts.Mode {
@@ -56,36 +54,15 @@ func Open(path string, opts config.SyncOptions) (*WAL, error) {
 }
 
 func (w *WAL) Append(r record.Record) error {
-	payloadSize := int(r.Size())
+	return w.submit(encodeRecords([]record.Record{r}))
+}
 
-	buf := make([]byte, 4+payloadSize+4)
-	binary.LittleEndian.PutUint32(buf[:4], uint32(payloadSize))
-
-	payload := buf[4 : 4+payloadSize]
-	record.EncodeRecordInto(payload, r)
-	checksum := crc32.ChecksumIEEE(payload)
-	binary.LittleEndian.PutUint32(buf[4+payloadSize:], checksum)
-
-	switch w.opts.Mode {
-	case config.SyncBatch:
-		return w.appendBatch(buf)
-	default:
-		return w.appendAsync(buf)
+func (w *WAL) AppendBatch(recs []record.Record, startSeq uint64) error {
+	for i := range recs {
+		recs[i].SeqNum = startSeq + uint64(i)
+		log.Println(string(recs[i].UserKey), recs[i].SeqNum)
 	}
-
-}
-
-func (w *WAL) appendAsync(buf []byte) error {
-	w.mu.Lock()
-	_, err := w.file.Write(buf)
-	w.mu.Unlock()
-	return err
-}
-
-func (w *WAL) appendBatch(buf []byte) error {
-	done := make(chan error, 1)
-	w.commitCh <- commitReq{buf: buf, done: done}
-	return <-done
+	return w.submit(encodeRecords(recs))
 }
 
 func Replay(w *WAL, fn func(r record.Record) error) error {
@@ -171,7 +148,6 @@ func (w *WAL) Close() error {
 	}
 
 	close(w.closeCh)
-
 	w.file.Sync()
 	return w.file.Close()
 }
@@ -228,13 +204,50 @@ func (w *WAL) intervalSyncer() {
 		case <-ticker.C:
 			w.mu.Lock()
 			w.file.Sync()
-			old := w.syncCh
-			w.syncCh = make(chan struct{})
 			w.mu.Unlock()
-			close(old)
 
 		case <-w.closeCh:
 			return
 		}
 	}
+}
+
+func (w *WAL) submit(buf []byte) error {
+	switch w.opts.Mode {
+	case config.SyncBatch:
+		done := make(chan error, 1)
+		w.commitCh <- commitReq{buf: buf, done: done}
+		return <-done
+	default:
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		_, err := w.file.Write(buf)
+		return err
+	}
+}
+
+func encodeRecords(recs []record.Record) []byte {
+	var total int
+
+	for _, rec := range recs {
+		total += 4 + int(rec.Size()) + 4
+	}
+
+	buf := make([]byte, total)
+	off := 0
+
+	for _, rec := range recs {
+		size := int(rec.Size())
+
+		binary.LittleEndian.PutUint32(buf[off:], uint32(size))
+		off += 4
+
+		record.EncodeRecordInto(buf[off:off+size], rec)
+		crc := crc32.ChecksumIEEE(buf[off : off+size])
+		off += size
+
+		binary.LittleEndian.PutUint32(buf[off:], crc)
+		off += 4
+	}
+	return buf
 }

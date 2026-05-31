@@ -25,7 +25,7 @@ type Engine struct {
 	immt *memtable.Memtable
 
 	vs     *meta.VersionSet
-	seqNum uint64
+	seqNum atomic.Uint64
 
 	tableCache   map[uint64]*sstable.TableReader
 	tableCacheMu sync.RWMutex
@@ -74,27 +74,28 @@ func New(opts *config.Options) (*Engine, error) {
 	}
 
 	e.vs = vs
-	atomic.StoreUint64(&e.seqNum, vs.LastSequenceNum())
+	e.seqNum.Store(vs.LastSequenceNum())
 
 	go e.runFlusher()
 
 	if opts.CrashRecovery {
-		// walPath := filepath.Join(
-		// 	opts.DataDir,
-		// 	"wal",
-		// 	fmt.Sprintf("wal-%06d.log", vs.LogNumber()),
-		// )
-
-		// e.wal, err = wal.Open(walPath, opts.WALSyncInterval)
-		// if err != nil {
-		// 	log.Println(err)
-		// 	return nil, err
-		// }
-
 		if err := e.recover(); err != nil {
 			log.Println(err)
 			return nil, err
 		}
+
+		walPath := filepath.Join(
+			opts.DataDir,
+			"wal",
+			fmt.Sprintf("wal-%06d.log", e.vs.NextFileNum()),
+		)
+
+		e.wal, err = wal.Open(walPath, opts.SyncOptions)
+		if err != nil {
+			log.Println(err)
+			return nil, err
+		}
+
 	}
 
 	return e, nil

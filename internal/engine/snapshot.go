@@ -4,7 +4,6 @@ import (
 	"math"
 	"slices"
 	"sync"
-	"sync/atomic"
 )
 
 type Snapshot struct {
@@ -20,7 +19,7 @@ type SnapshotList struct {
 // creates a snapshot of the current engine state
 // caller need to call snapshot.Release() when done to avoid leaks
 func (e *Engine) NewSnapshot() *Snapshot {
-	seq := atomic.LoadUint64(&e.seqNum)
+	seq := e.seqNum.Load()
 	e.snapshots.add(seq)
 	return &Snapshot{
 		seqNum: seq,
