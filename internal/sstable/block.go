@@ -2,38 +2,13 @@ package sstable
 
 import (
 	"encoding/binary"
-	"github.com/a4eiron/ascentdb/internal/record"
 	"hash/crc32"
+
+	"github.com/a4eiron/ascentdb/internal/record"
 )
 
 type Block struct {
 	entries []record.Record
-}
-
-// [block_size(4)][num_entries(4)][[entry_size(4)][entry]...][checksum(4)]
-func encodeBlock(b *Block, size int) []byte {
-	size += 4
-	buf := make([]byte, size)
-	off := 0
-
-	binary.LittleEndian.PutUint32(buf[off:], uint32(size))
-	off += 4
-
-	binary.LittleEndian.PutUint32(buf[off:], uint32(len(b.entries)))
-	off += 4
-
-	for _, entry := range b.entries {
-		entryBytes := record.EncodeRecord(entry)
-		binary.LittleEndian.PutUint32(buf[off:], uint32(len(entryBytes)))
-		off += 4
-		copy(buf[off:], entryBytes)
-		off += len(entryBytes)
-	}
-
-	crc := crc32.ChecksumIEEE(buf[:size-4])
-	binary.LittleEndian.PutUint32(buf[size-4:], crc)
-
-	return buf
 }
 
 func decodeBlock(b []byte) (*Block, error) {
@@ -76,11 +51,3 @@ func decodeBlock(b []byte) (*Block, error) {
 
 	return block, nil
 }
-
-// func blockSize(b Block) int {
-// 	size := 4 + 4 + len(b.entries)*4
-// 	for _, entry := range b.entries {
-// 		size += int(entry.Size())
-// 	}
-// 	return size
-// }

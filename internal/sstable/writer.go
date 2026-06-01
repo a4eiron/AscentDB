@@ -1,6 +1,10 @@
 package sstable
 
 import (
+	"bufio"
+	"encoding/binary"
+	"hash/crc32"
+	"io"
 	"os"
 
 	"github.com/a4eiron/ascentdb/internal/record"
@@ -62,16 +66,13 @@ func (w *TableWriter) flushBlock() error {
 		return nil
 	}
 
-	encodedBlock := encodeBlock(w.block, int(w.currentBlockSize))
 	offset := w.offset
-
-	n, err := w.file.Write(encodedBlock)
+	n, err := w.writeBlock(w.file)
 	if err != nil {
 		return err
 	}
 
 	last := w.block.entries[len(w.block.entries)-1]
-
 	w.index.entries = append(w.index.entries, IndexEntry{
 		SeparatorKey: last.InternalKey,
 		BlockOffset:  offset,
@@ -137,4 +138,48 @@ func (w *TableWriter) Close() (int64, error) {
 	size := stat.Size()
 
 	return size, w.file.Close()
+}
+
+func (w *TableWriter) writeBlock(f *os.File) (int, error) {
+	totalSize := w.currentBlockSize + 4
+	crcHash := crc32.NewIEEE()
+
+	teeWriter := io.MultiWriter(f, crcHash)
+
+	bw := bufio.NewWriter(teeWriter)
+
+	var headerBuf [4]byte
+
+	binary.LittleEndian.PutUint32(headerBuf[:], uint32(totalSize))
+	if _, err := bw.Write(headerBuf[:]); err != nil {
+		return 0, err
+	}
+
+	binary.LittleEndian.PutUint32(headerBuf[:], uint32(len(w.block.entries)))
+	if _, err := bw.Write(headerBuf[:]); err != nil {
+		return 0, err
+	}
+
+	for _, entry := range w.block.entries {
+		binary.LittleEndian.PutUint32(headerBuf[:], entry.Size())
+		if _, err := bw.Write(headerBuf[:]); err != nil {
+			return 0, err
+		}
+
+		if _, err := record.EncodeRecordIntoWriter(bw, entry); err != nil {
+			return 0, err
+		}
+	}
+
+	if err := bw.Flush(); err != nil {
+		return 0, err
+	}
+
+	checksum := crcHash.Sum32()
+	binary.LittleEndian.PutUint32(headerBuf[:], checksum)
+	if _, err := f.Write(headerBuf[:]); err != nil {
+		return 0, err
+	}
+
+	return int(totalSize), nil
 }

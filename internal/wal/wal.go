@@ -19,9 +19,10 @@ type WAL struct {
 	opts config.SyncOptions
 
 	commitCh chan *commitReq
-	closeCh  chan struct{}
-
 	commitWg sync.WaitGroup
+
+	closeCh chan struct{}
+	closed  bool
 }
 
 type commitReq struct {
@@ -149,44 +150,52 @@ func (w *WAL) Close() error {
 		return nil
 	}
 
+	w.mu.Lock()
+	if w.closed {
+		w.mu.Unlock()
+		return nil
+	}
+	w.closed = true
+
+	if w.commitCh != nil {
+		close(w.commitCh)
+	}
 	close(w.closeCh)
+	w.mu.Unlock()
 	w.commitWg.Wait()
 
-	w.file.Sync()
+	if err := w.file.Sync(); err != nil {
+		return err
+	}
 	return w.file.Close()
 }
 
 func (w *WAL) committer() {
 	defer w.commitWg.Done()
 	for {
-		var reqs []*commitReq
-		select {
-		case req := <-w.commitCh:
-			reqs = append(reqs, req)
-			time.Sleep(200 * time.Microsecond)
-		case <-w.closeCh:
-			for {
-				select {
-				case req := <-w.commitCh:
-					req.err = errors.New("wal: closed")
-					req.wg.Done()
-				default:
-					return
-				}
-			}
+		req, ok := <-w.commitCh
+		if !ok {
+			return
 		}
 
+		reqs := []*commitReq{req}
+		time.Sleep(5 * time.Millisecond)
+
+	drain:
 		for {
 			select {
-			case req := <-w.commitCh:
-				reqs = append(reqs, req)
+			case r, ok := <-w.commitCh:
+				if !ok {
+					break drain
+				}
+				reqs = append(reqs, r)
+
 			default:
-				goto flush
+				break drain
 			}
 		}
-
-	flush:
 		total := 0
+
 		for _, r := range reqs {
 			total += len(r.buf)
 		}
@@ -205,6 +214,7 @@ func (w *WAL) committer() {
 			r.err = err
 			r.wg.Done()
 		}
+
 	}
 }
 
@@ -230,12 +240,25 @@ func (w *WAL) submit(buf []byte) error {
 	case config.SyncBatch:
 		req := &commitReq{buf: buf}
 		req.wg.Add(1)
+
+		w.mu.Lock()
+		if w.closed {
+			w.mu.Unlock()
+			return errors.New("wal: closed")
+		}
+		w.mu.Unlock()
+
 		w.commitCh <- req
 		req.wg.Wait()
 		return req.err
 	default:
 		w.mu.Lock()
 		defer w.mu.Unlock()
+
+		if w.closed {
+			return errors.New("wal: closed")
+		}
+
 		_, err := w.file.Write(buf)
 		return err
 	}

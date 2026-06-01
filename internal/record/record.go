@@ -3,6 +3,7 @@ package record
 import (
 	"encoding/binary"
 	"errors"
+	"io"
 )
 
 var (
@@ -30,10 +31,51 @@ func (r *Record) ValueLen() uint32 {
 	return uint32(len(r.Value))
 }
 
-func EncodeRecord(r Record) []byte {
-	buf := make([]byte, r.Size())
-	EncodeRecordInto(buf, r)
-	return buf
+func EncodeRecordIntoWriter(w io.Writer, r Record) (int, error) {
+	var buf [8]byte
+	var totalWritten int
+
+	binary.LittleEndian.PutUint32(buf[:4], uint32(len(r.UserKey)))
+	n, err := w.Write(buf[:4])
+	totalWritten += n
+	if err != nil {
+		return totalWritten, err
+	}
+
+	n, err = w.Write(r.UserKey)
+	totalWritten += n
+	if err != nil {
+		return totalWritten, err
+	}
+
+	binary.LittleEndian.PutUint64(buf[:8], r.SeqNum)
+	n, err = w.Write(buf[:8])
+	totalWritten += n
+	if err != nil {
+		return totalWritten, err
+	}
+
+	buf[0] = byte(r.Type)
+	n, err = w.Write(buf[:1])
+	totalWritten += n
+	if err != nil {
+		return totalWritten, err
+	}
+
+	binary.LittleEndian.PutUint32(buf[:4], uint32(len(r.Value)))
+	n, err = w.Write(buf[:4])
+	totalWritten += n
+	if err != nil {
+		return totalWritten, err
+	}
+
+	n, err = w.Write(r.Value)
+	totalWritten += n
+	if err != nil {
+		return totalWritten, err
+	}
+
+	return totalWritten, nil
 }
 
 func EncodeRecordInto(dst []byte, r Record) int {
