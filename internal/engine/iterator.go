@@ -14,14 +14,16 @@ type ScanIterator struct {
 	currentRec record.Record
 	current    *record.Record
 	heap       *internal.IteratorHeap
+	release    func()
 }
 
-func NewScanIterator(iters []internal.Iterator, end []byte, seqNum uint64) *ScanIterator {
+func NewScanIterator(iters []internal.Iterator, end []byte, seqNum uint64, releaseFn func()) *ScanIterator {
 	s := &ScanIterator{
-		iters:  iters,
-		end:    end,
-		seqNum: seqNum,
-		heap:   internal.NewIteratorHeap(iters),
+		iters:   iters,
+		end:     end,
+		seqNum:  seqNum,
+		heap:    internal.NewIteratorHeap(iters),
+		release: releaseFn,
 	}
 	s.advance()
 	return s
@@ -55,12 +57,19 @@ func (s *ScanIterator) Seek(target record.InternalKey) {
 	s.advance()
 }
 
+func (s *ScanIterator) Release() {
+	if s.release != nil {
+		s.release()
+		s.release = nil
+	}
+}
+
 func (sIter *ScanIterator) advance() {
 
 	for !sIter.heap.Empty() {
 		userKey := sIter.heap.Peek().Record.UserKey
 
-		if bytes.Compare(userKey, sIter.end) > 0 {
+		if bytes.Compare(userKey, sIter.end) >= 0 {
 			sIter.current = nil
 			return
 		}

@@ -57,7 +57,8 @@ func (e *Engine) compactLevel(
 	e.mu.Lock()
 	nextLevelFiles := append([]*meta.TableMeta(nil), e.vs.Current.Levels[nextLevel]...)
 	if level > 0 && len(inputs) > 0 {
-		e.compactPointer[level] = inputs[len(inputs)-1].MaxKey.UserKey
+		key := inputs[len(inputs)-1].MaxKey.UserKey
+		e.compactPointer[level] = append(e.compactPointer[level], key...)
 	}
 	e.mu.Unlock()
 

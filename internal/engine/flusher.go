@@ -163,6 +163,8 @@ func (e *Engine) flush(task *flushTask) error {
 		}
 	}
 
+	immt := e.immt
+
 	e.immt = nil
 	e.imwal = nil
 	if len(e.vs.Current.Levels[0]) >= int(e.opts.MaxL0Files) {
@@ -170,5 +172,9 @@ func (e *Engine) flush(task *flushTask) error {
 	}
 
 	e.mu.Unlock()
+
+	if immt != nil {
+		immt.Unref()
+	}
 	return nil
 }

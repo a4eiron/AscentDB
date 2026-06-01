@@ -2,6 +2,7 @@ package memtable
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/a4eiron/ascentdb/internal/record"
 )
@@ -12,16 +13,21 @@ type Memtable struct {
 	size    uint64
 	maxSize uint64
 
+	refs atomic.Int32
+
 	mu sync.RWMutex
 }
 
 func New(maxSize uint64, slMaxLevel uint, slP float64) *Memtable {
 	compareFn := func(a, b record.InternalKey) int { return a.Compare(b) }
 
-	return &Memtable{
+	mt := &Memtable{
 		list:    NewSkiplist(slMaxLevel, slP, compareFn),
 		maxSize: maxSize,
 	}
+	mt.refs.Add(1)
+
+	return mt
 }
 
 func (m *Memtable) Put(r record.Record) error {
@@ -53,4 +59,12 @@ func (m *Memtable) Iterator() *MemtableIterator {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.list.Iterator()
+}
+
+func (m *Memtable) Ref() {
+	m.refs.Add(1)
+}
+
+func (m *Memtable) Unref() {
+	m.refs.Add(-1)
 }

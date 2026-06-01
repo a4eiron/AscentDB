@@ -25,16 +25,24 @@ func (e *Engine) Scan(start, end []byte) *ScanIterator {
 
 func (e *Engine) scan(start, end []byte, seqNum uint64) *ScanIterator {
 	e.mu.RLock()
-	defer e.mu.RUnlock()
+
+	mt := e.mt
+	immt := e.immt
+	mt.Ref()
+	if immt != nil {
+		immt.Ref()
+	}
+
+	e.mu.RUnlock()
 
 	var iters []internal.Iterator
 
-	mtIter := e.mt.Iterator()
+	mtIter := mt.Iterator()
 	mtIter.Seek(record.InternalKey{UserKey: start, SeqNum: seqNum})
 	iters = append(iters, mtIter)
 
-	if e.immt != nil {
-		immtIter := e.immt.Iterator()
+	if immt != nil {
+		immtIter := immt.Iterator()
 		immtIter.Seek(record.InternalKey{UserKey: start, SeqNum: seqNum})
 		iters = append(iters, immtIter)
 	}
@@ -56,7 +64,12 @@ func (e *Engine) scan(start, end []byte, seqNum uint64) *ScanIterator {
 		}
 	}
 
-	return NewScanIterator(iters, end, seqNum)
+	return NewScanIterator(iters, end, seqNum, func() {
+		mt.Unref()
+		if immt != nil {
+			immt.Unref()
+		}
+	})
 }
 
 func (e *Engine) get(key []byte, seqNum uint64) ([]byte, bool) {

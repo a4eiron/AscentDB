@@ -84,6 +84,18 @@ if !ok {
 }
 ```
 
+### Range Scan
+
+```go
+iter := e.Scan([]byte("key-001"), []byte("key-11")
+defer iter.Release()    // must release
+
+for iter.Valid(){
+    fmt.Println(string(iter.Key()), string(iter.Value()))
+    iter.Next()
+}
+```
+
 ### What are missing?
 
 - [x] Write-Ahead-Log with crash recovery
@@ -96,4 +108,3 @@ if !ok {
 - [ ] Custom comparator
 - [ ] Compresssion
 - [ ] Prefix scan
-- [ ] Ratelimiting for compaction

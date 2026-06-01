@@ -116,7 +116,8 @@ func DecodeRecord(data []byte) (Record, error) {
 		return Record{}, ErrCorruptRecord
 	}
 
-	userKey := data[off : off+keyLen]
+	userKey := make([]byte, keyLen)
+	copy(userKey, data[off:off+keyLen])
 	off += keyLen
 
 	if off+8 > len(data) {
@@ -144,7 +145,8 @@ func DecodeRecord(data []byte) (Record, error) {
 		return Record{}, ErrCorruptRecord
 	}
 
-	value := data[off : off+valLen]
+	value := make([]byte, valLen)
+	copy(value, data[off:off+valLen])
 
 	return Record{
 		InternalKey: InternalKey{
