@@ -89,7 +89,7 @@ if !ok {
 - [x] Snapshots
 - [x] Batch writes
 - [x] Tombstone-aware compaction
-- [x] Custom comparator
+- [ ] Custom comparator
 - [ ] Compresssion
 - [ ] Prefix scan
 - [ ] Ratelimiting for compaction
