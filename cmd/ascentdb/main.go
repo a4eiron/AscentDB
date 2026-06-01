@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/a4eiron/ascentdb/internal/config"
 	"github.com/a4eiron/ascentdb/internal/engine"
@@ -19,7 +18,7 @@ func main() {
 		CrashRecovery: true,
 		SyncOptions: config.SyncOptions{
 			Mode:     config.SyncNone,
-			Interval: 600 * time.Millisecond,
+			Interval: 0,
 		},
 	})
 
@@ -28,27 +27,8 @@ func main() {
 	}
 	defer e.Close()
 
-	// wb := batch.New()
-	//
-	// wb.Put(fmt.Appendf(nil, "user:1:name"), fmt.Appendf(nil, "alice")).
-	// 	Put(fmt.Appendf(nil, "user:1:email"), fmt.Appendf(nil, "alice@gmail.com"))
-	//
-	// if err := e.WriteBatch(wb); err != nil {
-	// 	log.Fatal(err)
-	// }
-	//
-	// if val, ok := e.Get(fmt.Appendf(nil, "user:1:name")); ok {
-	// 	fmt.Println(string(val))
-	// }
-	// if val, ok := e.Get(fmt.Appendf(nil, "user:1:email")); ok {
-	// 	fmt.Println(string(val))
-	// }
-
-	iter := e.Scan(fmt.Appendf(nil, "user:1:"), fmt.Appendf(nil, "user:1;"))
-	for iter.Valid() {
-		fmt.Println(string(iter.Key()), string(iter.Value()))
-		iter.Next()
-	}
+	putSomeStuff(e, 0, 100000)
+	getSomeStuff(e, 0, 100000)
 
 }
 
@@ -71,11 +51,9 @@ func getSomeStuff(e *engine.Engine, start, end int) {
 			counter++
 			log.Println(string(val))
 		} else {
-			// log.Println("MISSED IT", key)
+			log.Println("MISSED IT", key)
 		}
 	}
 
-	// log.Println("==============================================================")
 	log.Println("counter:", counter)
-	// log.Println("==============================================================")
 }

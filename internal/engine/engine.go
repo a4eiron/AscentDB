@@ -2,7 +2,6 @@ package engine
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -37,7 +36,7 @@ type Engine struct {
 	compactWg sync.WaitGroup
 
 	isCompacting   atomic.Bool
-	compactPointer [7][]byte
+	compactPointer [][]byte
 
 	snapshots SnapshotList
 
@@ -45,27 +44,10 @@ type Engine struct {
 }
 
 func New(opts *config.Options) (*Engine, error) {
-	if err := os.MkdirAll(filepath.Join(opts.DataDir, "tables"), 0755); err != nil {
+	opts = config.WithDefaults(opts)
+
+	if err := mkdirs(opts); err != nil {
 		return nil, err
-	}
-
-	if err := os.MkdirAll(filepath.Join(opts.DataDir, "wal"), 0755); err != nil {
-		return nil, err
-	}
-
-	for level := range 7 {
-		dir := filepath.Join(opts.DataDir, "tables", fmt.Sprintf("L%d", level))
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return nil, err
-		}
-	}
-
-	e := &Engine{
-		opts:       opts,
-		mt:         memtable.New(uint64(opts.MemtableSize)),
-		flushChan:  make(chan *flushTask, 6),
-		blockCache: sstable.NewBlockCache(1024),
-		tableCache: make(map[uint64]*sstable.TableReader),
 	}
 
 	vs, err := meta.Open(opts.DataDir)
@@ -73,27 +55,28 @@ func New(opts *config.Options) (*Engine, error) {
 		return nil, err
 	}
 
-	e.vs = vs
+	e := &Engine{
+		opts:           opts,
+		vs:             vs,
+		mt:             memtable.New(uint64(opts.MemtableSize), opts.SkiplistMaxLevel, opts.SkiplistP),
+		flushChan:      make(chan *flushTask, 6),
+		blockCache:     sstable.NewBlockCache(opts.BlockCacheSize),
+		tableCache:     make(map[uint64]*sstable.TableReader),
+		compactPointer: make([][]byte, opts.NumLevels),
+	}
+
 	e.seqNum.Store(vs.LastSequenceNum())
 
 	go e.runFlusher()
 
 	if opts.CrashRecovery {
 		if err := e.recover(); err != nil {
-			log.Println(err)
-			return nil, err
+			return nil, fmt.Errorf("recovery: %v", err)
 		}
 
-		walPath := filepath.Join(
-			opts.DataDir,
-			"wal",
-			fmt.Sprintf("wal-%06d.log", e.vs.NextFileNum()),
-		)
-
-		e.wal, err = wal.Open(walPath, opts.SyncOptions)
+		e.wal, err = wal.Open(e.walPath(e.vs.NextFileNum()), opts.SyncOptions)
 		if err != nil {
-			log.Println(err)
-			return nil, err
+			return nil, fmt.Errorf("open wal: %v", err)
 		}
 
 	}
@@ -153,14 +136,32 @@ func (e *Engine) Close() error {
 	close(e.flushChan)
 	e.compactWg.Wait()
 
+	e.tableCacheMu.Lock()
 	for _, r := range e.tableCache {
 		if err := r.Close(); err != nil {
 			return err
 		}
 	}
+	e.tableCacheMu.Unlock()
 
 	if e.wal != nil {
 		return e.wal.Close()
+	}
+	return nil
+}
+
+func mkdirs(opts *config.Options) error {
+	dirs := []string{
+		filepath.Join(opts.DataDir, "wal"),
+		filepath.Join(opts.DataDir, "tables"),
+	}
+	for level := range opts.NumLevels {
+		dirs = append(dirs, filepath.Join(opts.DataDir, "tables", fmt.Sprintf("L%d", level)))
+	}
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
 	}
 	return nil
 }

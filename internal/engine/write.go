@@ -36,7 +36,7 @@ func (e *Engine) write(key, value []byte, typ record.IKType) error {
 		e.mu.RLock()
 		l0Count := len(e.vs.Current.Levels[0])
 		e.mu.RUnlock()
-		if l0Count < maxL0Files*2 {
+		if l0Count < int(e.opts.MaxL0Files)*2 {
 			break
 		}
 		time.Sleep(1 * time.Second)

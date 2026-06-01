@@ -15,11 +15,11 @@ type Memtable struct {
 	mu sync.RWMutex
 }
 
-func New(maxSize uint64) *Memtable {
+func New(maxSize uint64, slMaxLevel uint, slP float64) *Memtable {
 	compareFn := func(a, b record.InternalKey) int { return a.Compare(b) }
 
 	return &Memtable{
-		list:    NewSkiplist(16, compareFn),
+		list:    NewSkiplist(slMaxLevel, slP, compareFn),
 		maxSize: maxSize,
 	}
 }

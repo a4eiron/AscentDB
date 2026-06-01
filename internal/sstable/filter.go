@@ -13,7 +13,7 @@ type Filter struct {
 	k    uint8
 }
 
-func NewFilter(n int, p float64) *Filter {
+func NewFilter(n uint, p float64) *Filter {
 	// no.of bits
 	m := uint32(math.Ceil(-float64(n) * math.Log(p) / (math.Ln2 * math.Ln2)))
 

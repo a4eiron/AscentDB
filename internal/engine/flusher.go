@@ -56,10 +56,9 @@ func (e *Engine) rotate() (*flushTask, error) {
 		if err := e.vs.LogAndApply(edit); err != nil {
 			log.Println(err)
 		}
-		// log.Println("rotate logNumber:", logNum)
 	}
 
-	e.mt = memtable.New(uint64(e.opts.MemtableSize))
+	e.mt = memtable.New(uint64(e.opts.MemtableSize), e.opts.SkiplistMaxLevel, e.opts.SkiplistP)
 
 	fileNum := e.vs.NextFileNum()
 
@@ -68,6 +67,8 @@ func (e *Engine) rotate() (*flushTask, error) {
 	writer, err := sstable.Create(
 		e.tablePath(0, fileNum),
 		e.opts.BlockSize,
+		e.opts.FilterExpectedKeys,
+		e.opts.FilterFPRate,
 	)
 	if err != nil {
 		return nil, err
@@ -101,7 +102,7 @@ func (e *Engine) flush(task *flushTask) error {
 	iter := task.mt.Iterator()
 
 	for iter.Valid() {
-		key := iter.Key()
+		key := iter.InternalKey()
 		value := iter.Value()
 
 		if !hasData {
@@ -164,7 +165,7 @@ func (e *Engine) flush(task *flushTask) error {
 
 	e.immt = nil
 	e.imwal = nil
-	if len(e.vs.Current.Levels[0]) >= maxL0Files {
+	if len(e.vs.Current.Levels[0]) >= int(e.opts.MaxL0Files) {
 		e.scheduleCompaction()
 	}
 

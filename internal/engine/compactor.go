@@ -12,19 +12,12 @@ import (
 	"github.com/a4eiron/ascentdb/internal/sstable"
 )
 
-const (
-	maxL0Files      = 4
-	maxBytesBase    = 10 * 1024 * 1024
-	levelMultiplier = 10
-	maxSSTableSize  = 4 * 1024 * 1024
-)
-
 func (e *Engine) scheduleCompaction() {
 	if !e.isCompacting.CompareAndSwap(false, true) {
 		return
 	}
 
-	if len(e.vs.Current.Levels[0]) >= maxL0Files {
+	if len(e.vs.Current.Levels[0]) >= int(e.opts.MaxL0Files) {
 		inputs := e.pickCompactionInputs(0)
 		outFileNum := e.vs.NextFileNum()
 
@@ -156,7 +149,12 @@ func (e *Engine) writeCompactionOutput(
 	openWriter := func() error {
 		var err error
 		e.ensureLevelDir(level)
-		writer, err = sstable.Create(e.tablePath(level, fileNum), e.opts.BlockSize)
+		writer, err = sstable.Create(
+			e.tablePath(level, fileNum),
+			e.opts.BlockSize,
+			e.opts.FilterExpectedKeys,
+			e.opts.FilterFPRate,
+		)
 		first = true
 		return err
 	}
@@ -213,7 +211,7 @@ func (e *Engine) writeCompactionOutput(
 		}
 
 		size, _ := writer.EstimatedSize()
-		if size >= maxSSTableSize {
+		if size >= e.opts.MaxSSTableSize {
 			if err := closeWriter(); err != nil {
 				return nil, err
 			}
@@ -282,10 +280,10 @@ func (e *Engine) levelSize(level int) int64 {
 }
 
 func (e *Engine) levelCapacity(level int) int64 {
-	cap := int64(maxBytesBase)
+	cap := e.opts.MaxBytesBase
 
 	for i := 1; i < level; i++ {
-		cap *= levelMultiplier
+		cap *= int64(e.opts.LevelMultiplier)
 	}
 	return cap
 }

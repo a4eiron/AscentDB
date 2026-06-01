@@ -8,8 +8,6 @@ import (
 	"github.com/a4eiron/ascentdb/internal/record"
 )
 
-const P = 0.25
-
 type SkiplistNode struct {
 	key     record.InternalKey
 	value   []byte
@@ -19,16 +17,18 @@ type SkiplistNode struct {
 type Skiplist struct {
 	head     *SkiplistNode
 	level    int
-	maxLevel int
+	maxLevel uint
+	p        float64
 	compare  func(a, b record.InternalKey) int
 	pool     *sync.Pool
 }
 
-func NewSkiplist(maxLevel uint, compare func(a, b record.InternalKey) int) *Skiplist {
+func NewSkiplist(maxLevel uint, p float64, compare func(a, b record.InternalKey) int) *Skiplist {
 	return &Skiplist{
 		head:     &SkiplistNode{forward: make([]*SkiplistNode, maxLevel)},
 		level:    1,
-		maxLevel: int(maxLevel),
+		maxLevel: maxLevel,
+		p:        p,
 		compare:  compare,
 		pool: &sync.Pool{
 			New: func() any {
@@ -98,7 +98,7 @@ func (sl *Skiplist) search(userKey []byte, lookupKey record.InternalKey) ([]byte
 
 func (sl *Skiplist) randomLevel() int {
 	lvl := 1
-	for rand.Float64() < P && lvl < sl.maxLevel {
+	for rand.Float64() < sl.p && lvl < int(sl.maxLevel) {
 		lvl++
 	}
 	return lvl

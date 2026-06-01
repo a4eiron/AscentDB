@@ -5,7 +5,6 @@ import (
 	"errors"
 	"hash/crc32"
 	"io"
-	"log"
 	"os"
 	"sync"
 	"time"
@@ -19,13 +18,16 @@ type WAL struct {
 	mu   sync.Mutex
 	opts config.SyncOptions
 
-	commitCh chan commitReq
+	commitCh chan *commitReq
 	closeCh  chan struct{}
+
+	commitWg sync.WaitGroup
 }
 
 type commitReq struct {
-	buf  []byte
-	done chan error
+	buf []byte
+	err error
+	wg  sync.WaitGroup
 }
 
 func Open(path string, opts config.SyncOptions) (*WAL, error) {
@@ -46,7 +48,8 @@ func Open(path string, opts config.SyncOptions) (*WAL, error) {
 			go wal.intervalSyncer()
 		}
 	case config.SyncBatch:
-		wal.commitCh = make(chan commitReq, 256)
+		wal.commitCh = make(chan *commitReq, 256)
+		wal.commitWg.Add(1)
 		go wal.committer()
 	}
 
@@ -60,7 +63,6 @@ func (w *WAL) Append(r record.Record) error {
 func (w *WAL) AppendBatch(recs []record.Record, startSeq uint64) error {
 	for i := range recs {
 		recs[i].SeqNum = startSeq + uint64(i)
-		log.Println(string(recs[i].UserKey), recs[i].SeqNum)
 	}
 	return w.submit(encodeRecords(recs))
 }
@@ -148,21 +150,26 @@ func (w *WAL) Close() error {
 	}
 
 	close(w.closeCh)
+	w.commitWg.Wait()
+
 	w.file.Sync()
 	return w.file.Close()
 }
 
 func (w *WAL) committer() {
+	defer w.commitWg.Done()
 	for {
-		var reqs []commitReq
+		var reqs []*commitReq
 		select {
 		case req := <-w.commitCh:
 			reqs = append(reqs, req)
+			time.Sleep(200 * time.Microsecond)
 		case <-w.closeCh:
 			for {
 				select {
 				case req := <-w.commitCh:
-					req.done <- errors.New("wal: closed")
+					req.err = errors.New("wal: closed")
+					req.wg.Done()
 				default:
 					return
 				}
@@ -179,7 +186,12 @@ func (w *WAL) committer() {
 		}
 
 	flush:
-		var batch []byte
+		total := 0
+		for _, r := range reqs {
+			total += len(r.buf)
+		}
+
+		batch := make([]byte, 0, total)
 		for _, r := range reqs {
 			batch = append(batch, r.buf...)
 		}
@@ -190,7 +202,8 @@ func (w *WAL) committer() {
 		}
 
 		for _, r := range reqs {
-			r.done <- err
+			r.err = err
+			r.wg.Done()
 		}
 	}
 }
@@ -215,9 +228,11 @@ func (w *WAL) intervalSyncer() {
 func (w *WAL) submit(buf []byte) error {
 	switch w.opts.Mode {
 	case config.SyncBatch:
-		done := make(chan error, 1)
-		w.commitCh <- commitReq{buf: buf, done: done}
-		return <-done
+		req := &commitReq{buf: buf}
+		req.wg.Add(1)
+		w.commitCh <- req
+		req.wg.Wait()
+		return req.err
 	default:
 		w.mu.Lock()
 		defer w.mu.Unlock()
