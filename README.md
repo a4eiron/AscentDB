@@ -87,7 +87,7 @@ if !ok {
 ### Range Scan
 
 ```go
-iter := e.Scan([]byte("key-001"), []byte("key-11")
+iter := e.Scan([]byte("key-001"), []byte("key-011")
 defer iter.Release()    // must release
 
 for iter.Valid(){
