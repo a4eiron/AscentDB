@@ -16,7 +16,7 @@ type SnapshotList struct {
 	snapshots []uint64
 }
 
-// creates a snapshot of the current engine state
+// NewSnapshot creates a snapshot of the current engine state
 // caller need to call snapshot.Release() when done to avoid leaks
 func (e *Engine) NewSnapshot() *Snapshot {
 	seq := e.seqNum.Load()

@@ -49,23 +49,22 @@ func (sIter *ScanIterator) Next() {
 	sIter.advance()
 }
 
-func (s *ScanIterator) Seek(target record.InternalKey) {
-	for _, it := range s.iters {
+func (sIter *ScanIterator) Seek(target record.InternalKey) {
+	for _, it := range sIter.iters {
 		it.Seek(target)
 	}
-	s.heap = internal.NewIteratorHeap(s.iters)
-	s.advance()
+	sIter.heap = internal.NewIteratorHeap(sIter.iters)
+	sIter.advance()
 }
 
-func (s *ScanIterator) Release() {
-	if s.release != nil {
-		s.release()
-		s.release = nil
+func (sIter *ScanIterator) Release() {
+	if sIter.release != nil {
+		sIter.release()
+		sIter.release = nil
 	}
 }
 
 func (sIter *ScanIterator) advance() {
-
 	for !sIter.heap.Empty() {
 		userKey := sIter.heap.Peek().Record.UserKey
 
